@@ -1,0 +1,66 @@
+% !TeX root = main.tex
+\subsection{盐胁迫下黑麦草枯叶表型的全基因组关联分析}
+\label{sec:ryegrass-salt-gwas}
+
+\subsubsection{盐胁迫试验与表型获取}
+\label{sec:ryegrass-salt-phenotyping}
+
+2026 年，以课题组前期从全球范围收集并完成基因组重测序的 223 份多年生黑麦草（\textit{Lolium perenne} L.）种质为材料，开展盐胁迫试验。每份种质由一粒种子萌发获得初始植株，再通过无性繁殖扩增。用于基因组重测序和盐胁迫试验的材料均来自各自种质同一初始植株的无性后代，以保持同一种质在基因型测定与表型试验中的遗传背景一致。
+
+每份种质设 6 个生物学重复，随机均分为对照组和盐处理组，每组 3 个重复。盐处理组采用 0.6\% NaCl 进行胁迫处理。处理 45~d 后，拍摄植株图像，调查生长速率与枯叶率，并测定相对电导率、叶片含水量及 \(\mathrm{Na}^{+}\)、\(\mathrm{K}^{+}\)、\(\mathrm{Ca}^{2+}\) 和 \(\mathrm{Mg}^{2+}\) 含量，以评价不同种质的盐胁迫响应。
+
+本节选取盐处理 45~d 后的枯叶率作为全基因组关联分析的表型，并分别获取人工枯叶率和图像枯叶率。人工枯叶率由调查人员对各生物学重复的叶片枯黄程度进行目测估计，以百分数记录。图像枯叶率按照第~\ref{sec:ryegrass-senescence}~节所述方法计算：利用 BiMSeg 提取植株的可见冠层，再由 XGBoost 区分冠层内的绿叶与枯叶像素，以枯叶像素数占冠层前景像素总数的比例表示单个生物学重复的图像枯叶率。对每份种质，分别将盐处理组 3 个生物学重复的人工枯叶率和图像枯叶率取算术平均，得到种质水平的人工枯叶率与图像枯叶率。
+
+按种质编号匹配两种枯叶率记录与 VCF 文件中的基因型记录，取三者的交集，最终保留 196 份多年生黑麦草种质。以这 196 份种质为共同分析样本，比较两种枯叶率的分布及其配对差异，并在相同的材料和基因型数据基础上，分别以人工枯叶率和图像枯叶率开展全基因组关联分析。
+
+\subsubsection{枯叶率的分布与测量一致性}
+\label{sec:ryegrass-salt-phenotype-comparison}
+
+基于最终纳入全基因组关联分析的 196 份多年生黑麦草种质，分别描述人工枯叶率和图像枯叶率的群体分布，并按种质编号比较两种测量值。两种表型均以盐处理组 3 个生物学重复的算术平均值表示，以下统计均以种质为单位。
+
+采用直方图和正态 Q--Q 图描述两种表型的分布，并以 Shapiro--Wilk 检验评估其对正态分布的偏离。如图~\ref{fig:ryegrass-salt-phenotype-distributions} 所示，图像枯叶率介于 26.99\% 至 99.24\%，中位数为 42.31\%；人工枯叶率介于 17.00\% 至 98.33\%，中位数为 45.28\%。两种表型的分布均向高值端延伸，呈右偏分布，其中图像枯叶率的右偏更为明显。两组原始表型值均偏离正态分布（Shapiro--Wilk 检验，均为 \(p<0.001\)）。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/salt_phenotype_distributions.pdf}
+  \methodbicaption{盐胁迫下黑麦草人工枯叶率与图像枯叶率的分布}
+    {Distributions of visually assessed and image-derived senescent leaf percentages in ryegrass under salt stress}
+    {fig:ryegrass-salt-phenotype-distributions}
+  \par\smallskip
+  {\raggedright\normalfont\zihao{5}
+   注：a、b 分别为图像枯叶率和人工枯叶率的直方图，虚线为拟合的正态分布曲线；c、d 为相应的正态 Q--Q 图。两种表型均基于 196 份种质。\par
+   Note: Panels a and b show histograms of image-derived and visually assessed senescent leaf percentages, respectively. Dashed curves indicate fitted normal distributions. Panels c and d show the corresponding normal Q--Q plots. Both phenotypes were assessed for the same 196 accessions.\par}
+\end{figure}
+
+采用 Pearson 相关系数和 Spearman 秩相关系数，分别评价两种测量值的线性关联及材料排序的相近程度。配对散点图显示，人工枯叶率较高的种质通常也具有较高的图像枯叶率（图~\ref{fig:ryegrass-salt-phenotype-agreement}a）。Pearson 相关系数为 0.878，Spearman 秩相关系数为 0.854，表明两种测量值总体同向变化，且对种质枯黄程度的排序较为接近。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/salt_phenotype_agreement.pdf}
+  \methodbicaption{盐胁迫下黑麦草人工枯叶率与图像枯叶率的配对比较}
+    {Paired comparison of visually assessed and image-derived senescent leaf percentages in ryegrass under salt stress}
+    {fig:ryegrass-salt-phenotype-agreement}
+  \par\smallskip
+  {\raggedright\normalfont\zihao{5}
+   注：a 为配对散点图，虚线表示两种测量值相等；b 为 Bland--Altman 差值图，实线表示平均差，虚线表示估计的 95\% 一致性界限。每个点代表一份种质。\par
+   Note: Panel a shows the paired scatter plot, with the dashed line indicating equality. Panel b shows the Bland--Altman plot, with the solid line indicating the mean difference and the dashed lines indicating the estimated 95\% limits of agreement. Each point represents one accession.\par}
+\end{figure}
+
+为进一步评价两种测量值在数值上的接近程度，采用 Bland--Altman 差值图，以每份种质两种读数的均值为横坐标，以图像枯叶率减去人工枯叶率的差值为纵坐标（图~\ref{fig:ryegrass-salt-phenotype-agreement}b）。配对差值的均值为 \(-2.56\) 个百分点，即图像枯叶率总体略低于人工枯叶率；配对绝对差的均值为 6.06 个百分点。按照平均差加减差值标准差的 1.96 倍计算，估计的 95\% 一致性界限为 \(-17.39\) 至 \(12.28\) 个百分点。平均差较小，但种质之间的配对差值仍有较大变动。人工枯叶率来自目测估计，图像枯叶率反映可见冠层投影中枯叶像素的比例，因此，这些差值描述的是两种测量口径之间的差异，不能直接解释为图像测量相对于真实枯叶率的误差。后续关联分析保留两种表型各自的观测值，在相同的 196 份种质上分别检验其与基因组变异的关联。
+
+\subsubsection{图像枯叶率与人工枯叶率的全基因组关联分析}
+\label{sec:ryegrass-salt-gwas-results}
+为比较两种表型获取方式下盐胁迫枯叶率的关联信号，以 196 份多年生黑麦草种质为分析群体，分别将盐处理 45~d 后的图像枯叶率和人工枯叶率作为数量性状，采用 FarmCPU 方法开展全基因组关联分析\papercite{liu2016farmcpu}。该方法通过固定效应模型逐一检验标记与表型的关联，并利用随机效应模型更新纳入检验的候选标记。本研究按加性遗传模型估计待检验 SNP 的效应，即检验枯叶率是否随等位基因剂量呈线性变化。两次分析采用相同的种质、基因型数据及 Bonferroni 显著性阈值（\(P=2.41\times10^{-9}\)），结果见图~\ref{fig:ryegrass-salt-gwas-manhattan}。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/salt_gwas_manhattan_comparison.pdf}
+  \methodbicaption{盐胁迫下多年生黑麦草图像枯叶率与人工枯叶率的全基因组关联分析}
+    {Genome-wide association analyses of image-derived and visually assessed senescent leaf percentages in perennial ryegrass under salt stress}
+    {fig:ryegrass-salt-gwas-manhattan}
+  \par\smallskip
+  {\raggedright\normalfont\zihao{5}
+   注：a 为图像枯叶率，b 为人工枯叶率。横坐标表示 SNP 在各染色体上的物理位置，纵坐标表示关联检验的 \(-\log_{10}(P)\)。红色虚线表示 Bonferroni 显著性阈值，红点表示达到该阈值的 SNP。\par
+   Note: Panels a and b show results for image-derived and visually assessed senescent leaf percentages, respectively. The horizontal axis shows the physical positions of SNPs along the chromosomes, and the vertical axis shows \(-\log_{10}(P)\). The red dashed line marks the Bonferroni significance threshold, and red dots denote significant SNPs.\par}
+\end{figure}
+以图像枯叶率为表型，共检出 9 个显著关联 SNP，分布于 5 条染色体（图~\ref{fig:ryegrass-salt-gwas-manhattan}a）。第 1 号染色体上的显著标记最多，共 3 个；第 4 和第 6 号染色体上各有 2 个，第 3 和第 7 号染色体上各有 1 个。尽管第 1 号染色体检出的标记较多，最强关联信号出现在第 4 号染色体 455.890~Mb 处，其标记 c4.455889675 的 \(P\) 值为 \(8.55\times10^{-21}\)。其次为第 6 号染色体 205.851~Mb 处的 c6.205851118（\(P=1.19\times10^{-17}\)）和第 7 号染色体 340.453~Mb 处的 c7.340453039（\(P=2.61\times10^{-15}\)）。\par
+以人工枯叶率为表型，同样检出 9 个显著关联 SNP，分布于第 1、3、4、5、6 和 7 号染色体（图~\ref{fig:ryegrass-salt-gwas-manhattan}b）。与图像枯叶率的结果相比，人工枯叶率最突出的两个关联信号分别位于第 3 和第 1 号染色体：第 3 号染色体 321.389~Mb 处的 c3.321388959 关联最强（\(P=1.05\times10^{-18}\)），其次为第 1 号染色体 252.839~Mb 处的 c1.252838547（\(P=5.74\times10^{-17}\)）。第 5 号染色体是两组结果在染色体分布上的主要区别：人工枯叶率在该染色体的 60.652~Mb 和 207.388~Mb 处各检出 1 个显著 SNP，而图像枯叶率在该染色体上没有标记达到全基因组显著性阈值。

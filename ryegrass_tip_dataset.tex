@@ -1,0 +1,33 @@
+% !TeX root = main.tex
+\subsection{黑麦草叶尖点标注数据集 RyeTip 的构建}
+\label{sec:ryetip-dataset}
+为将 CGTipNet 用于黑麦草叶尖定位与计数，本研究采用人工标注与模型辅助标注相结合的方式构建黑麦草叶尖点标注数据集 RyeTip。首先选取 83 幅黑麦草图像，逐幅在原图上标记可辨识的叶尖，共获得 2324 个叶尖标注点（图~\ref{fig:ryetip-annotation}a）。每个点记录一个可见叶尖的二维坐标，同一幅图像的标注点数即为该图像的参考叶尖数。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.90\linewidth]{figures/ryetip_annotation.pdf}
+  \methodbicaption{黑麦草叶尖的人工标注与模型辅助标注}
+    {Manual and model-assisted annotation of ryegrass leaf tips}
+    {fig:ryetip-annotation}
+  \par\smallskip
+  {\raggedright\normalfont\zihao{5}
+   注：a 为人工标注示例；b 为模型辅助标注示例。红点表示图像中的标记位置。\par
+   Note: Panels a and b show examples of manual and model-assisted annotation, respectively. Red dots indicate marked positions.\par}
+\end{figure}
+将上述 83 幅人工标注图像与 RiceW3999 的训练样本合并，用于训练 CGTipNet。水稻和小麦图像提供了不同株型下的叶尖样本，黑麦草图像则为模型提供了目标物种的叶尖位置参照。随后，将训练所得模型用于尚未标注的黑麦草图像，以预测点作为候选叶尖位置，辅助后续标注（图~\ref{fig:ryetip-annotation}b）。如图所示，部分候选点位于植株外围的背景区域，说明模型预测点仍需结合原图判读。\par
+RyeTip暂时共收录 184 幅黑麦草图像，包含 5709 个叶尖标注点。计入最初人工标注的 83 幅图像后，扩充阶段新增 101 幅图像、3385 个标注点。该数据集以图像和对应的叶尖点坐标为基本记录，可为黑麦草叶尖定位提供位置标注，也可按图像汇总得到可见叶尖的参考计数。
+
+\medskip\noindent\textbf{黑麦草叶尖定位与计数结果}\par
+
+图~\ref{fig:cgtipnet-ryegrass-predictions} 展示了 CGTipNet 对四幅黑麦草图像的推理结果。将模型保留的预测点叠加到原始图像上，可以同时观察各预测点的位置及其与叶片末端的对应关系。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.98\linewidth]{figures/cgtipnet_ryegrass_predictions.pdf}
+  \methodbicaption{CGTipNet 在黑麦草图像上的叶尖定位结果}
+    {Leaf-tip predictions by CGTipNet on ryegrass images}
+    {fig:cgtipnet-ryegrass-predictions}
+  \par\smallskip
+  {\raggedright\normalfont\zihao{5}
+   注：每幅图对应一个样本，红点表示 CGTipNet 预测的叶尖位置。\par
+   Note: Each image shows a different sample. Red dots indicate leaf tips predicted by CGTipNet.\par}
+\end{figure}
+在所示样本中，冠层外围的部分预测点位于外伸叶片的末端；在冠层中央区域，叶片交叠较多，仅凭整图较难判断相邻预测点分别对应哪片叶。将每幅图像中保留的预测点总数作为该图像的可见叶尖预测数。

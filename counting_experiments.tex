@@ -1,0 +1,136 @@
+% !TeX root = main.tex
+\subsection{公开数据集上的实验与结果}
+\label{sec:cgtipnet-experiments}
+从黑麦草冠层图像中提取可见叶尖数，既要在细长、交叠的叶片间辨认叶尖的位置，也要准确估计单幅图像中的叶尖总数。水稻和小麦与黑麦草同属禾本科，三者在图像中均可见狭长叶片相互交叠、相邻叶尖难以区分的情形。基于这些形态特点，本文选取具有叶尖点标注的 RiceTip、Wheat1799 和 Wheat500 作为公开实验数据。各数据集的标注既给出了叶尖位置，也可按图像汇总为参考计数，因而能够在相同样本上分别比较各方法对叶尖位置和数量的识别表现。\par
+实验设置独立训练与联合训练两种方案：前者在各数据集内分别比较 CGTipNet 与现有方法，后者保留原有训练与验证划分，将三个数据集合并为 RiceW3999，考察同一模型在水稻和小麦图像上的表现。评价以叶尖计数误差和定位精度为主，并比较模型参数量与评估耗时，为后续将 CGTipNet 应用于黑麦草叶尖标注与计数提供实验依据。
+
+
+\subsubsection{实验设置}
+\label{sec:cgtipnet-settings}
+\medskip\noindent\textbf{数据集与实验划分}\par
+本研究采用 RiceTip、Wheat1799 和 Wheat500 三个公开叶尖点标注数据集。其中，水稻数据集 RiceTip 取自 FoMo4Wheat 提供的叶尖标注数据\papercite{han2025fomo4wheat}；Wheat1799 来源于利用叶尖密度变化估计小粒谷物早期植株密度的研究\papercite{yang2025cerealdensity}；Wheat500 来源于结合三维植物模拟与域适应开展的小麦幼苗叶片计数研究\papercite{li2023selfsupervisedphenotyping}。图~\ref{fig:leaf-tip-dataset-examples} 展示了三个数据集的原始图像及叶尖标注示例。各数据集均以二维点坐标记录可见叶尖的位置，评价时以标注点的原图坐标作为定位参考，以每幅图像的标注点总数作为参考计数。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/leaf_tip_dataset_examples.pdf}
+  \methodbicaption{公开数据集中的作物图像与叶尖点标注示例}
+    {Examples of crop images and leaf-tip point annotations from the public datasets}
+    {fig:leaf-tip-dataset-examples}
+  \par\smallskip
+  {\raggedright\normalfont\zihao{5}
+   \noindent 注：a、b、c 分别对应 RiceTip、Wheat1799 和 Wheat500。上排为原始图像，下排为叠加叶尖标注点的对应图像。\par
+   \noindent Note: Columns a--c correspond to RiceTip, Wheat1799, and Wheat500, respectively. The top row shows the original images, and the bottom row shows the same images with leaf-tip annotations overlaid.\par}
+\end{figure}
+各数据集均以原始图像为单位划分训练集与验证集，其中 RiceTip 按 \(8:2\) 划分，Wheat1799 和 Wheat500 均按约 \(9:1\) 划分。构建联合数据集 RiceW3999 时，分别合并三个来源的训练集和验证集，保留每幅图像原有的划分归属，最终得到 3429 幅训练图像和 570 幅验证图像。各数据集的图像划分与标注点统计见表~\ref{tab:cgtipnet-datasets}。其中，Wheat1799 的图像数最多，但每图平均标注点数最低；RiceTip 的每图平均标注点数最高，说明不同来源的图像在单图计数规模上存在差异。表中标注点数用于描述数据集的总体规模，后文的计数与定位指标仅在验证集上计算。
+\begin{table}[H]
+  \centering
+  \experimentbicaption{公开叶尖数据集的图像划分与标注点统计}
+    {Image splits and leaf-tip annotation counts for the public datasets}
+    {tab:cgtipnet-datasets}
+  \begin{spacing}{1.2}
+    \normalfont\zihao{5}
+    \setlength{\tabcolsep}{5pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular}{@{}llrrrrr@{}}
+      \toprule
+      & & \multicolumn{3}{c}{图像数（幅）} & \multicolumn{2}{c}{叶尖点标注} \\
+      \cmidrule(lr){3-5}\cmidrule(l){6-7}
+      数据集 & 作物 & 总数 & 训练集 & 验证集 & 标注点总数 & 每图平均点数 \\
+      \midrule
+      RiceTip   & 水稻 & 1700 & 1360 & 340 & 202\,767 & 119.27 \\
+      Wheat1799 & 小麦 & 1799 & 1619 & 180 &  50\,150 &  27.88 \\
+      Wheat500  & 小麦 &  500 &  450 &  50 &  41\,873 &  83.75 \\
+      \midrule
+      RiceW3999 & 水稻、小麦 & 3999 & 3429 & 570 & 294\,790 & 73.72 \\
+      \bottomrule
+    \end{tabular}\par
+    \vspace{8pt}
+    {\raggedright
+     \noindent 注：标注点总数包含训练集与验证集中的全部叶尖标注点。每图平均点数为标注点总数除以图像总数。RiceW3999 由上述三个数据集合并得到。\par
+     \vspace{2pt}
+     \noindent Note: Annotation counts include all labeled leaf tips in the training and validation images. The mean per image is the total annotation count divided by the number of images. RiceW3999 combines the three source datasets.\par}
+  \end{spacing}
+\end{table}
+
+
+\par\medskip\noindent\textbf{训练与推理配置}\par
+CGTipNet 采用 ImageNet 预训练权重初始化 VGG16-BN 骨干网络。训练时，对图像及其叶尖标注坐标同步施加几何变换，并从每幅训练图像中在线裁取一个 \(512\times512\) 像素的图像块。仅保留裁剪范围内的标注点，并将其坐标转换至图像块坐标系。采用 AdamW 优化器，批量大小为 32，训练周期为 50 轮。骨干网络与其余网络参数的初始学习率分别为 \(10^{-5}\) 和 \(10^{-4}\)，权重衰减系数为 \(10^{-4}\)，点回归损失权重 \(\lambda_{\mathrm{pt}}\) 为 \(2\times10^{-4}\)。\par
+
+验证时，以原始分辨率的完整图像为输入，必要时对图像边缘进行填充。CGTipNet 仅保留置信度高于 0.5 且位于原图范围内的预测点，以这些点的原图坐标作为叶尖定位结果，以保留点数作为该幅图像的预测计数。
+
+
+\par\medskip\noindent\textbf{评价指标与效率测量}\par
+计数性能采用平均绝对误差（mean absolute error，MAE）和均方根误差（root mean square error，RMSE）评价。设验证集包含 \(N\) 幅图像，第 \(i\) 幅图像的参考叶尖数与预测叶尖数分别为 \(n_i\) 和 \(\widehat{n}_i\)，则
+\begin{equation}
+  \mathrm{MAE}
+  = \frac{1}{N}\sum_{i=1}^{N}\left|\widehat{n}_i-n_i\right|,
+  \qquad
+  \mathrm{RMSE}
+  = \sqrt{\frac{1}{N}\sum_{i=1}^{N}\left(\widehat{n}_i-n_i\right)^2}.
+  \label{eq:cgtipnet-counting-metrics}
+\end{equation}
+
+MAE 表示单幅图像的预测计数与参考计数之间的平均绝对偏差；RMSE 对较大的单图误差赋予更高权重。两项指标均以每幅图像的叶尖数为单位，数值越小表示计数误差越小。\par
+
+定位性能采用 4、8 和 16 像素三个匹配距离阈值下的 F1 分数评价，分别记为 \(\mathrm{F1}@4\)、\(\mathrm{F1}@8\) 和 \(\mathrm{F1}@16\)。在每幅图像的原图坐标系内，对预测点与标注点进行一对一匹配：先使阈值范围内的匹配点对数最大，再使匹配点对的总距离最小。每个成功匹配的点对计为一个真正例（TP），未匹配的预测点计为假正例（FP），未匹配的标注点计为假负例（FN）。在验证集上分别累加三类计数，计算各阈值下的 F1：
+\begin{equation}
+  \mathrm{F1}
+  = \frac{2\,\mathrm{TP}}
+         {2\,\mathrm{TP}+\mathrm{FP}+\mathrm{FN}}.
+  \label{eq:cgtipnet-location-f1}
+\end{equation}
+
+匹配距离越小，对预测位置的要求越严格。计数误差按图像计算，每幅图像具有相同权重；定位 F1 则按验证集内的匹配结果汇总，标注点较多的图像对总标注点数的贡献更大。此外，同一幅图像中的漏检与误检可能在数量上相互抵消。因此，计数误差较小表示预测总数接近参考值，预测点是否落在相应叶尖附近，还需结合定位 F1 判断。\par
+
+模型规模以参数量表示，单位为百万（M）。评估耗时采用实验日志记录的单次完整验证时间evaluation\_seconds，单位为秒。在 RiceW3999 实验中，该指标对应完成全部 570 幅验证图像评估所需的总时间。
+
+\subsubsection{对比实验}
+\label{sec:cgtipnet-comparison}
+\medskip\noindent\textbf{RiceW3999 上的联合训练结果}\par
+在 RiceW3999 联合训练方案下，本文将 CGTipNet 与 P2Rloss\papercite{lin2025p2rloss}、PET\papercite{liu2023pet} 和 SAH\papercite{jiang2026sah} 进行比较，结果见表~\ref{tab:cgtipnet-ricew3999}。P2Rloss、PET 和 SAH 分别采用验证集 MAE 最低的第 40、38 和 46 轮结果，CGTipNet 采用第 49 轮的验证记录。每种方法的计数误差、定位 F1 和评估耗时均取自该方法所选轮次的同一次验证。
+\begin{table}[H]
+  \centering
+  \experimentbicaption{不同方法在 RiceW3999 验证集上的叶尖计数、定位与评估效率}
+    {Leaf-tip counting, localization, and evaluation efficiency on the RiceW3999 validation set}
+    {tab:cgtipnet-ricew3999}
+  \begin{spacing}{1.2}
+    \normalfont\zihao{5}
+    \setlength{\tabcolsep}{4pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lrrrrrrr@{}}
+      \toprule
+      & \multicolumn{2}{c}{计数误差}
+      & \multicolumn{3}{c}{定位 F1（\%）}
+      & \multicolumn{2}{c}{模型规模与耗时} \\
+      \cmidrule(lr){2-3}\cmidrule(lr){4-6}\cmidrule(l){7-8}
+      方法 & MAE\(\downarrow\) & RMSE\(\downarrow\)
+        & 4\,px\(\uparrow\) & 8\,px\(\uparrow\) & 16\,px\(\uparrow\)
+        & 参数量（M）\(\downarrow\) & 耗时（s）\(\downarrow\) \\
+      \midrule
+      P2Rloss & 9.89 & \underline{13.93}
+        & 34.86 & 61.61 & 71.24 & \textbf{16.77} & 12.47 \\
+      PET & \underline{9.33} & 13.96
+        & \textbf{49.99} & \textbf{68.38} & \textbf{76.15} & 20.94 & 25.86 \\
+      SAH & 10.14 & 14.07
+        & \underline{49.02} & 66.43 & 74.30 & 17.37 & \underline{7.36} \\
+      \midrule
+      \textbf{CGTipNet} & \textbf{9.16} & \textbf{13.27}
+        & 48.81 & \underline{68.05} & \underline{75.58}
+        & \underline{17.20} & \textbf{7.18} \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：MAE 为平均绝对误差（Mean Absolute Error），RMSE 为均方根误差（Root Mean Square Error），F1 为定位精确率与召回率的调和平均。4、8 和 16\,px 为原图中的匹配距离阈值。参数量以百万（M）计，耗时为评估全部 570 幅验证图像的总时间。\(\uparrow\) 和 \(\downarrow\) 分别表示越大越优和越小越优；粗体和下划线分别标示各列的最优值和次优值。\par
+    \vspace{2pt}
+    \noindent Note: MAE is mean absolute error, RMSE is root mean square error, and F1 is the harmonic mean of localization precision and recall. Matching thresholds of 4, 8, and 16 pixels refer to the original images. Parameter counts are in millions (M), and evaluation time covers all 570 validation images. \(\uparrow\) and \(\downarrow\) indicate that higher and lower values are better, respectively. Bold and underlined values mark the best and second-best results in each column.\par
+  \end{minipage}\par
+\end{table}
+在叶尖计数方面，CGTipNet 的 MAE 和 RMSE 分别为 9.16 和 13.27，均为四种方法中的最低值。与 PET 相比，CGTipNet 的 MAE 和 RMSE 分别低 0.17 和 0.69；与 SAH 相比，两项误差分别低 0.98 和 0.80。\par
+在叶尖定位方面，PET 在三个匹配阈值下均取得最高 F1。在 4\,px 阈值下，CGTipNet 的 F1 为 48.81\%，低于 PET 的 49.99\% 和 SAH 的 49.02\%。当阈值放宽至 8 和 16\,px 时，CGTipNet 的 F1 分别达到 68.05\% 和 75.58\%，均居第二，与 PET 分别相差 0.33 和 0.57 个百分点。此外，CGTipNet 与 P2Rloss 的 MAE 仅相差 0.73，但 CGTipNet 在 4\,px 阈值下的 F1 高出 13.95 个百分点，说明计数误差接近时，预测点与标注点的空间吻合程度仍可能有较大差异。\par
+在模型规模与评估耗时方面，CGTipNet 的参数量为 17.20\,M，较 PET 的 20.94\,M 少 3.74\,M，降幅约为 17.9\%。在本次运行条件下，CGTipNet 完成一次验证用时 7.18\,s，与 SAH 的 7.36\,s 接近。相比 PET，CGTipNet 在 8 和 16\,px 阈值下的定位 F1 差距均不足 1 个百分点，整套验证耗时由 25.86\,s 降至 7.18\,s，缩短约 72.2\%。
+
+% 定稿复核：四组日志均记录 570 幅验证图像，但按 TP+FN 计算的参考点数并不完全一致。
+% CGTipNet 为 48867，其余三种方法为 48730，相差 137 个点。上述数值均不是完整数据集的标注点总数 294790。
+% 定稿前核对验证图像清单、标注点过滤规则与检查点选择方式，并以统一口径更新比较结果。

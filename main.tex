@@ -1,0 +1,160 @@
+% 主文件：只编译本文件。编译器选择 XeLaTeX。
+\documentclass[UTF8,a4paper,zihao=-4,fontset=none]{ctexart}
+
+% ==================== 字体 ====================
+\setCJKmainfont{simsun.ttc}[
+  FontIndex=0,
+  AutoFakeBold=2.5
+]
+\setmainfont{times.ttf}[
+  BoldFont=timesbd.ttf,
+  ItalicFont=timesi.ttf,
+  BoldItalicFont=timesbi.ttf
+]
+\setCJKsansfont{simsun.ttc}[
+  FontIndex=0,
+  AutoFakeBold=2.5
+]
+\setCJKmonofont{simsun.ttc}[FontIndex=0]
+
+% ==================== 数学、图片、三线表 ====================
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{setspace}
+\usepackage{placeins}
+\usepackage{float}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
+
+% ==================== 参考文献 ====================
+\usepackage[authoryear,round]{natbib}
+\usepackage{gbt7714}
+\citestyle{authoryear}
+\newcommand{\papercite}[1]{%
+  （\citeauthor{#1}，\citeyear{#1}）%
+}
+\setlength{\bibhang}{2em}
+\setlength{\bibsep}{4pt}
+
+% ==================== 页面与段落 ====================
+\usepackage[
+  a4paper,
+  top=2.54cm,
+  bottom=2.54cm,
+  left=2.54cm,
+  right=2.54cm
+]{geometry}
+\onehalfspacing
+\setlength{\parskip}{0pt}
+\setlength{\parindent}{2\ccwd}
+\clubpenalty=100
+\widowpenalty=100
+\displaywidowpenalty=100
+
+% ==================== 标题 ====================
+\ctexset{
+  section = {
+    format = \raggedright\bfseries\zihao{3},
+    indent = 0pt,
+    beforeskip = 12pt,
+    afterskip = 8pt,
+    afterindent = true
+  },
+  subsection = {
+    format = \raggedright\bfseries\zihao{4},
+    indent = 0pt,
+    beforeskip = 8pt,
+    afterskip = 6pt,
+    afterindent = true
+  },
+  subsubsection = {
+    format = \raggedright\bfseries\zihao{-4},
+    indent = 0pt,
+    beforeskip = 6pt,
+    afterskip = 4pt,
+    afterindent = true
+  }
+}
+
+% ==================== 图表题注 ====================
+\DeclareCaptionFont{methodfive}{\zihao{5}}
+\DeclareCaptionLabelFormat{methodfiglabel}{图~\textbf{#2}}
+
+\captionsetup{
+  font=small,
+  labelfont=bf,
+  labelsep=quad,
+  justification=centering,
+  singlelinecheck=false,
+  skip=6pt
+}
+\renewcommand{\figurename}{图}
+\renewcommand{\tablename}{表}
+
+% ==================== 图、表、公式分章编号 ====================
+% ctexart 中用 section 作为章。三个计数器各自随章重置。
+\counterwithin*{figure}{section}
+\counterwithin*{table}{section}
+\counterwithin*{equation}{section}
+
+\renewcommand{\thefigure}{\thesection-\arabic{figure}}
+\renewcommand{\thetable}{\thesection-\arabic{table}}
+\renewcommand{\theequation}{\thesection-\arabic{equation}}
+
+\begin{document}
+\pagestyle{plain}
+
+% 摘要：创建文件后取消注释
+% \input{abstract}
+
+% 第 1 章：绪论
+\input{introduction}
+
+\clearpage
+
+% 第 2 章：黑麦草图像分割方法与数据集构建
+\input{method}
+\input{experiments}
+
+% 排完实验部分的浮动表格，再进入数据集构建一节。
+\clearpage
+\input{ryegrass_dataset}
+\input{senescence}
+\input{ryegrass_salt_gwas}
+\input{ryegrass_heat_gwas}
+
+
+% 第 3 章：黑麦草叶尖定位计数方法与数据集构建
+% \clearpage
+% \input{counting}
+
+% 第 4 章：黑麦草图像表型提取与分析
+% \clearpage
+% \input{ryegrass_phenotyping}
+
+% 第 5 章：总结与展望
+% \clearpage
+% \input{conclusion}
+
+% 全文参考文献统一输出一次
+\clearpage
+
+\input{counting_method}
+\input{counting_experiments}
+\input{ryegrass_tip_dataset}
+
+
+
+
+\clearpage
+\input{future_work}
+
+\clearpage
+\renewcommand{\refname}{参考文献}
+\bibliographystyle{bimseg-author-year}
+\bibliography{references}
+
+\end{document}

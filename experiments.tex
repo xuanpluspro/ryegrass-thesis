@@ -1,0 +1,1402 @@
+% !TeX root = main.tex
+% 本文件只包含实验正文，请通过 main.tex 编译。
+
+% 第二章：公共数据集实验
+% 双语表题沿用 main.tex 中已声明的五号题注字体 methodfive。
+\newcommand{\experimentbicaption}[3]{%
+  \begingroup
+  \captionsetup{position=top,font=methodfive,labelfont=bf,textfont=bf,
+    justification=centering,singlelinecheck=false,skip=6pt}%
+  \caption[#1]{#1\protect\\Table~\thetable\quad #2}%
+  \label{#3}%
+  \endgroup
+}
+
+\begingroup
+\ctexset{
+  subsection = {beforeskip = 12pt, afterskip = 8pt},
+  subsubsection = {beforeskip = 12pt, afterskip = 8pt}
+}
+
+\subsection{公开数据集上的实验与结果}
+\label{sec:experiments}
+
+为评价 BiMSeg 在不同作物与分割任务中的表现，本文选用三个公开作物图像分割数据集开展实验：在 VegAnn（小麦、水稻、玉米、向日葵等多种作物）\papercite{madec2023vegann} 上评价植被前景提取性能，在 GWFSS（小麦）\papercite{wang2025gwfss} 上评价叶片、茎秆与麦穗的器官分割性能，在 RiceSEG（水稻）\papercite{zhou2025riceseg} 上评价稻田场景的多类别分割性能。通过对比实验比较 BiMSeg 与现有方法的分割精度和推理效率，并通过消融实验分析各模块及其组合对分割性能的影响。上述实验为后续黑麦草冠层分割与模型辅助标注提供方法依据。
+
+\subsubsection{实验设置}
+\label{sec:exp-settings}
+\medskip\noindent\textbf{数据集与数据划分}\par
+\label{sec:exp-datasets}
+本文选用 VegAnn、GWFSS 和 RiceSEG 三个公开作物图像分割数据集，分别评价 BiMSeg 在多作物植被前景提取、小麦器官分割和水稻田间场景多类别分割任务中的表现。\par
+植被标注数据集（Vegetation Annotation，VegAnn）包含 3775 张 RGB 图像，覆盖小麦、水稻、玉米和向日葵等 26 种作物类型，涉及不同生育阶段、成像平台和光照条件，采用植被前景与背景两类标注\papercite{madec2023vegann}。全球小麦器官语义分割数据集（Global Wheat Full Semantic Organ Segmentation，GWFSS）包含 1096 张像素级标注的小麦图像，区分麦穗、茎、叶和背景四类，用于评价模型对交叠器官及细长茎叶的识别能力\papercite{wang2025gwfss}。全球水稻多类别分割数据集（Global Rice Multiclass Segmentation，RiceSEG）包含 3078 张标注图像，采集自中国、日本、印度、菲律宾和坦桑尼亚，标注类别包括背景、绿色植被、衰老植被、稻穗、杂草和浮萍，用于评价模型对稻田中不同器官、植被类型及组织状态的区分能力\papercite{zhou2025riceseg}。三个数据集的原始图像及对应的分割掩膜示例见图~\ref{fig:public-segmentation-datasets}。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/public_segmentation_dataset_examples.pdf}
+  \methodbicaption{公开作物图像分割数据集示例}
+    {Examples from the public crop image segmentation datasets}
+    {fig:public-segmentation-datasets}
+  \par\smallskip
+  {\raggedright\normalfont\zihao{5}
+   \noindent 注：a、b、c 三列分别对应 VegAnn、GWFSS 和 RiceSEG。上排为原始图像，下排为对应的分割掩膜。\par
+   \noindent Note: Columns a--c show examples from VegAnn, GWFSS, and RiceSEG, respectively. The top row shows the original images, and the bottom row shows the corresponding segmentation masks.\par}
+\end{figure}
+VegAnn 采用官方元数据中的 TVT-split1 划分；GWFSS 和 RiceSEG 均按约 \(8:1:1\) 的比例划分训练集、验证集和测试集。训练集用于优化模型参数，验证集用于选择模型检查点，测试集用于最终性能评价。同一数据集上的各对比方法均采用相同的划分。各数据集涉及的作物、类别数及各子集的图像数量见表~\ref{tab:exp-datasets}，其中类别数均包含背景。
+\begin{table}[H]
+  \centering
+  \experimentbicaption{语义分割实验数据集统计与划分}
+    {Dataset statistics and splits for semantic segmentation experiments}
+    {tab:exp-datasets}
+  \begin{spacing}{1.2}
+    \normalfont\zihao{5}
+    \setlength{\tabcolsep}{4pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular}{@{}llrrrrr@{}}
+      \toprule
+      数据集 & 作物 & 类别数 & 图像总数 & 训练集 & 验证集 & 测试集 \\
+      \midrule
+      VegAnn  & \shortstack[l]{小麦、水稻、玉米、\\向日葵等}
+              & 2 & 3775 & 3085 & 204 & 486 \\
+      GWFSS   & 小麦 & 4 & 1096 & 877  & 110 & 109 \\
+      RiceSEG & 水稻 & 6 & 3078 & 2462 & 308 & 308 \\
+      \bottomrule
+    \end{tabular}
+  \end{spacing}
+\end{table}
+
+\FloatBarrier
+
+\medskip\noindent\textbf{数据预处理与增强}\par
+\label{sec:exp-preprocessing}
+
+所有输入图像及其对应标签均采用 \(512\times512\) 的空间
+分辨率。图像以 RGB 三通道格式读取，将像素值缩放至
+\([0,1]\)，随后使用 ImageNet 的通道均值
+\((0.485,0.456,0.406)\) 和标准差
+\((0.229,0.224,0.225)\) 进行标准化。分割标签统一采用整数
+类别索引，背景编号为 0；对于以 0 和 255 编码的二分类
+掩膜，将前景值 255 映射为 1，多分类掩膜则保留各类别
+对应的索引。
+
+训练阶段对图像与标签同步施加随机几何增强，以保持像素
+对应关系。水平翻转和垂直翻转分别以 0.5 的概率执行，
+并从 \(0^\circ\)、\(90^\circ\)、\(180^\circ\) 和
+\(270^\circ\) 中等概率选择旋转角度。验证与测试阶段
+仅执行图像标准化和标签索引转换，不使用随机增强。
+
+\medskip\noindent\textbf{实现细节与训练策略}\par
+\label{sec:exp-implementation}
+
+实验在 AutoDL 云服务器上开展，操作系统为 Ubuntu 22.04，
+软件环境为 Python 3.12、PyTorch 2.8.0 和 CUDA 12.8。
+采用单个 GPU 实例进行训练，平台报告的设备名称为
+NVIDIA GeForce RTX 4080 SUPER，可用显存为 32\,GB。
+
+BiMSeg 的 ResNet50 编码器采用 ImageNet 预训练权重初始化，
+其余模块随机初始化，整个网络进行端到端优化。
+训练期间更新编码器中批归一化层的运行统计量。
+各层级特征的统一通道数设置为 256，
+分割预测头的输出通道数在 VegAnn、GWFSS 和 RiceSEG
+上分别设置为 2、4 和 6，均包含背景类别。
+对比方法的编码器同样采用 ImageNet 预训练权重初始化。
+
+采用 AdamW 优化器，初始学习率和权重衰减均设置为
+\(1\times10^{-4}\)，并通过余弦退火策略调整学习率。
+批量大小设置为 32，训练轮数为 50，
+启用自动混合精度训练，随机种子设置为 11。
+BiMSeg 的联合训练目标由交叉熵损失、前景 Dice 损失
+和前景辅助监督损失组成，后两项的权重分别设置为
+1 和 0.2。
+
+每轮训练结束后，在验证集上计算分割指标。
+三个数据集均依据验证集 mIoU 选择最优检查点，
+其中 mIoU 对包含背景的类别取宏平均。
+训练完成后，使用选定的检查点在对应测试集上
+进行最终评价，测试集不参与参数优化或检查点选择。
+
+\medskip\noindent\textbf{评价指标与效率测量}\par
+\label{sec:exp-metrics}
+
+从区域分割精度、边界质量和模型效率三个方面评价各方法。
+区域指标基于整个测试集累计的像素级混淆矩阵计算，
+避免不同图像的目标面积差异对逐图平均结果产生影响。
+设类别总数为 \(K\)，背景类别编号为 0，
+类别 \(c\) 的真正例、假正例和假负例像素数
+分别记为 \(\mathrm{TP}_c\)、\(\mathrm{FP}_c\)
+和 \(\mathrm{FN}_c\)。
+
+类别交并比（Intersection over Union，IoU）
+衡量预测区域与真实区域的重叠程度，定义为：
+\begin{equation}
+\mathrm{IoU}_c=
+\frac{\mathrm{TP}_c}
+{\mathrm{TP}_c+\mathrm{FP}_c+\mathrm{FN}_c}
+\label{eq:exp-class-iou}
+\end{equation}
+
+平均交并比（mean Intersection over Union，mIoU）
+对包含背景的各类别 IoU 取宏平均；
+前景平均交并比 \(\mathrm{mIoU}_{\mathrm{fg}}\)
+仅对非背景类别取宏平均：
+\begin{equation}
+\mathrm{mIoU}=
+\frac{1}{K}\sum_{c=0}^{K-1}\mathrm{IoU}_c,
+\qquad
+\mathrm{mIoU}_{\mathrm{fg}}=
+\frac{1}{K-1}\sum_{c=1}^{K-1}\mathrm{IoU}_c
+\label{eq:exp-miou}
+\end{equation}
+
+VegAnn 为二分类任务，其前景 IoU 对应
+\(\mathrm{IoU}_1\)，亦等于
+\(\mathrm{mIoU}_{\mathrm{fg}}\)。
+对于 GWFSS 和 RiceSEG，进一步报告各类别的
+IoU，以分析不同植物器官或组织的分割表现。
+
+Dice 系数同样用于评价区域重叠程度。
+本文报告前景类别的宏平均 Dice：
+\begin{equation}
+\mathrm{Dice}=
+\frac{1}{K-1}\sum_{c=1}^{K-1}
+\frac{2\mathrm{TP}_c}
+{2\mathrm{TP}_c+\mathrm{FP}_c+\mathrm{FN}_c}
+\label{eq:exp-dice}
+\end{equation}
+
+二分类时，该指标为唯一前景类别的 Dice；
+多分类时，对各前景类别分别计算后取平均，
+使不同类别在评价中具有相同权重。
+
+精确率（Precision）和召回率（Recall）
+分别描述预测结果的可靠程度与真实目标的检出程度，
+其逐类别定义为：
+\begin{equation}
+\mathrm{Precision}_c=
+\frac{\mathrm{TP}_c}
+{\mathrm{TP}_c+\mathrm{FP}_c},
+\qquad
+\mathrm{Recall}_c=
+\frac{\mathrm{TP}_c}
+{\mathrm{TP}_c+\mathrm{FN}_c}
+\label{eq:exp-precision-recall}
+\end{equation}
+
+总体 Precision 和 Recall 采用前景类别宏平均；
+逐类别结果则直接报告对应类别的数值，
+用于区分误检与漏检对分割性能的影响。
+平均类别准确率（mean Accuracy，mAcc）
+为包含背景的各类别召回率的宏平均：
+\begin{equation}
+\mathrm{mAcc}=
+\frac{1}{K}\sum_{c=0}^{K-1}
+\mathrm{Recall}_c
+\label{eq:exp-macc}
+\end{equation}
+
+像素准确率（Pixel Accuracy，PA）
+表示测试集中正确分类像素占全部有效标注像素的比例：
+\begin{equation}
+\mathrm{PA}=
+\frac{\sum_{c=0}^{K-1}\mathrm{TP}_c}
+{\sum_{c=0}^{K-1}
+\left(\mathrm{TP}_c+\mathrm{FN}_c\right)}
+\label{eq:exp-pa}
+\end{equation}
+
+上述宏平均公式对应各类别指标均有定义的情况。
+若某一类别的相应指标分母为零，
+则将该类别从该项指标的平均中排除，
+并以实际参与平均的类别数进行归一化。
+区域指标取值范围为 \([0,1]\)，数值越大表示性能越好，
+结果表中统一以百分数报告。
+
+边界质量采用边界 F1 分数（Boundary F1，BF1）、
+95\% Hausdorff 距离（HD95）
+和平均对称表面距离
+（Average Symmetric Surface Distance，ASSD）评价。
+将全部非背景类别合并为二值前景，
+在 \(512\times512\) 分辨率下提取预测与真实掩膜的边界。
+边界精确率 \(P_{\mathrm{b}}\)
+为预测边界像素中与真实边界距离不超过
+2 像素的比例；边界召回率 \(R_{\mathrm{b}}\)
+为真实边界像素中与预测边界距离不超过
+2 像素的比例。
+边界 F1 定义为：
+\begin{equation}
+\mathrm{BF1}=
+\frac{2P_{\mathrm{b}}R_{\mathrm{b}}}
+{P_{\mathrm{b}}+R_{\mathrm{b}}}
+\label{eq:exp-boundary-f1}
+\end{equation}
+
+HD95 用于衡量较大边界偏差，
+ASSD 用于衡量平均边界偏差。
+设预测边界与真实边界的点集分别为
+\(\mathcal{B}_{p}\) 和 \(\mathcal{B}_{g}\)，
+点 \(x\) 到边界点集 \(\mathcal{B}\) 的距离定义为：
+\begin{equation}
+d(x,\mathcal{B})=
+\min_{y\in\mathcal{B}}\|x-y\|_2
+\label{eq:exp-boundary-distance}
+\end{equation}
+
+HD95 根据两个方向的最近边界距离计算其
+第 95 百分位数，以减小极端离群点的影响；
+ASSD 则对两个方向的最近边界距离进行对称平均。
+边界指标逐图计算后在测试集上汇总，
+其中 BF1 以百分数报告，数值越大越好；
+HD95 和 ASSD 以像素为单位，数值越小越好。
+由于评价对象为合并后的前景边界，
+这些指标反映整体前景轮廓的匹配程度，
+不衡量不同前景类别之间的内部边界。
+
+模型效率通过参数量（Params）、
+浮点运算量（GFLOPs）和每秒处理图像数
+（Frames Per Second，FPS）评价。
+参数量以百万为单位。
+计算量采用 fvcore 的计数约定，
+将一次乘加计为一次运算，并以十亿次运算为单位；
+仅在运算统计完整时报告 GFLOPs，
+不将部分算子的统计值作为完整模型计算量参与比较。
+
+推理速度在相同 GPU 环境下测量，
+输入尺寸固定为 \(1\times3\times512\times512\)，
+模型设置为评估模式并关闭梯度计算，
+采用 FP32 精度并关闭 TF32。
+首先执行 50 次前向推理进行预热，
+随后执行 200 次前向推理，
+根据平均单次耗时计算 FPS。
+计时仅包含 GPU 上的网络前向计算，
+不包含数据读取、设备间传输、预处理及后处理。
+
+\subsubsection{对比实验}
+\label{sec:exp-comparison}
+
+\medskip\noindent\textbf{对比方法}\par
+\label{sec:exp-baselines}
+
+选取 U-Net\papercite{ronneberger2015unet}、
+U-Net++\papercite{zhou2018unetplusplus}、
+MA-Net\papercite{fan2020manet}、
+FPN\papercite{lin2017fpn}、
+PSPNet\papercite{zhao2017pspnet}、
+DeepLabV3+\papercite{chen2018deeplabv3plus}
+和 SegFormer\papercite{xie2021segformer}
+作为对比方法，构建十种模型配置。
+所选方法覆盖编码器--解码器、嵌套跳跃连接、
+注意力融合、多尺度特征金字塔、金字塔池化、
+空洞卷积及层级 Transformer 等技术路线，
+用于比较不同特征提取与融合方式下的分割表现。
+
+U-Net、U-Net++、MA-Net、FPN、PSPNet
+和 DeepLabV3+ 均采用 ResNet34 编码器。
+此外，分别为 U-Net 和 DeepLabV3+
+设置 MobileNetV2 编码器配置，
+以比较轻量化模型的分割精度与推理效率。
+SegFormer 采用 MiT-B0 和 MiT-B2 两种编码器，
+分别代表不同参数规模的层级 Transformer 配置。
+BiMSeg 采用 ResNet50 编码器。
+各方法的编码器均使用 ImageNet 预训练权重初始化，
+分割输出通道数根据数据集类别总数设置。
+
+对比模型基于
+segmentation\_models\_pytorch
+实现，BiMSeg 采用本文构建的网络实现。
+各方法使用相同的数据划分、输入分辨率、
+数据预处理与增强策略，并采用前述训练轮数、
+批量大小、优化器及学习率调度设置。
+所有模型均依据验证集 mIoU 选择最优检查点，
+使用统一评价程序计算测试集指标。
+
+实验结果依次在 VegAnn、GWFSS 和 RiceSEG
+数据集上报告。
+除整体分割指标外，在两个多分类数据集上
+进一步比较逐类别分割结果，
+并结合参数量与推理速度分析模型的精度与效率。
+由于各模型采用的编码器及参数规模不同，
+对比实验评价的是完整模型配置的综合性能；
+MSCA、DRCF 和 DCAM 的独立作用及组合效果
+通过后续消融实验分析。
+
+
+
+\medskip\noindent\textbf{VegAnn 数据集上的结果}\par
+\label{sec:exp-vegann}
+
+表~\ref{tab:vegann-comparison} 汇总了各方法在 VegAnn
+测试集上的区域分割性能。
+mIoU 对植被与背景两个类别取宏平均，
+前景 IoU、Dice、Precision 和 Recall
+均针对植被类别计算，
+PA 表示正确分类像素占全部有效标注像素的比例。
+所有区域指标均以百分数报告，
+各列最优结果以粗体表示，次优结果以下划线表示。
+
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{不同方法在 VegAnn 测试集上的区域分割性能}
+    {Region segmentation performance on the VegAnn test set}{tab:vegann-comparison}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llrrrrrr@{}}
+      \toprule
+      方法 & 编码器 & mIoU\(\uparrow\) & 前景 IoU\(\uparrow\)
+        & Dice\(\uparrow\) & P\(\uparrow\) & R\(\uparrow\) & PA\(\uparrow\) \\
+      \midrule
+      U-Net & ResNet34 & 86.87 & 90.05 & 94.77 & 94.38 & 95.16 & 93.41 \\
+      U-Net++ & ResNet34 & 86.51 & 89.77 & 94.61 & 94.23 & 94.99 & 93.22 \\
+      MA-Net & ResNet34 & 86.95 & 90.05 & 94.76 & \underline{94.81} & 94.72 & 93.44 \\
+      FPN & ResNet34 & 86.56 & 89.83 & 94.64 & 94.16 & 95.13 & 93.25 \\
+      PSPNet & ResNet34 & 83.71 & 87.68 & 93.44 & 92.67 & 94.21 & 91.71 \\
+      DeepLabV3+ & ResNet34 & 85.95 & 89.52 & 94.47 & 93.13 & \underline{95.85} & 92.96 \\
+      U-Net & MobileNetV2 & 86.17 & 89.64 & 94.54 & 93.47 & 95.62 & 93.07 \\
+      DeepLabV3+ & MobileNetV2 & 85.62 & 89.17 & 94.27 & 93.45 & 95.11 & 92.76 \\
+      SegFormer & MiT-B0 & 86.80 & 90.03 & 94.76 & 94.19 & 95.33 & 93.39 \\
+      SegFormer & MiT-B2 & \underline{87.53} & \underline{90.52}
+        & \underline{95.02} & \textbf{94.92} & 95.12 & \underline{93.76} \\
+      \midrule
+      \textbf{BiMSeg} & ResNet50 & \textbf{88.11} & \textbf{91.04}
+        & \textbf{95.31} & 94.75 & \textbf{95.87} & \textbf{94.09} \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：mIoU 为平均交并比，前景 IoU 为前景类别的交并比，Dice 为戴斯相似系数，P 为精确率，R 为召回率，PA 为像素准确率。各指标均以百分数表示，\(\uparrow\) 表示数值越大越好。粗体和下划线分别表示各列的最优值和次优值。\par
+    \vspace{2pt}
+    \noindent Note: mIoU denotes mean intersection over union; foreground IoU, intersection over union for the foreground class; Dice, Dice similarity coefficient; P, precision; R, recall; and PA, pixel accuracy. All metrics are expressed as percentages. An upward arrow (\(\uparrow\)) indicates that higher values are better. Bold and underlined values indicate the best and second-best results in each column, respectively.\par
+  \end{minipage}\par
+\end{table}
+
+
+
+BiMSeg 的 mIoU、前景 IoU 和 Dice
+分别达到 88.11\%、91.04\% 和 95.31\%，
+在所比较的方法中均取得最高数值，
+PA 为 94.09\%。
+相较于区域重叠指标最高的对比配置
+SegFormer MiT-B2，
+BiMSeg 的 mIoU、前景 IoU 和 Dice
+分别提高 0.58、0.52 和 0.29 个百分点，
+PA 提高 0.33 个百分点。
+包含背景的 mIoU 与仅评价植被类别的
+前景 IoU 均有所提高，
+表明其优势同时体现在整体类别分割与植被区域提取上。
+
+Precision 与 Recall 反映了预测结果中
+误检和漏检的不同表现。
+BiMSeg 的 Recall 为 95.87\%，
+较 SegFormer MiT-B2 提高 0.75 个百分点；
+Precision 为 94.75\%，
+较后者降低 0.17 个百分点。
+这表明，相较于该对比配置，
+BiMSeg 检出了更高比例的真实植被像素，
+但预测植被区域的精确率略低。
+在此权衡下，BiMSeg 仍取得更高的
+前景 IoU 和 Dice。
+
+在采用 ResNet34 编码器的方法中，
+MA-Net 的 mIoU 最高，为 86.95\%；
+U-Net 的 Dice 最高，为 94.77\%。
+BiMSeg 相较于二者的对应指标分别提高
+1.16 和 0.54 个百分点。
+此外，采用 MiT-B0 编码器的 SegFormer
+取得 86.80\% 的 mIoU 和 94.76\% 的 Dice，
+表明较小规模的模型也能够获得较高的植被区域重叠程度，
+其与 BiMSeg 的差异仍需结合模型效率共同评价。\par
+
+
+
+为进一步评价植被轮廓的匹配质量，
+表~\ref{tab:vegann-boundary-efficiency}
+报告各方法的 BF1、HD95 和 ASSD，
+并列出参数量与推理速度。
+BF1 以百分数报告，
+HD95 和 ASSD 以像素为单位，
+参数量以百万为单位。
+边界指标的最优与次优结果同样分别采用
+粗体与下划线标记。
+
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{不同方法在 VegAnn 测试集上的边界质量与推理效率}
+    {Boundary quality and inference efficiency on the VegAnn test set}
+    {tab:vegann-boundary-efficiency}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llrrrrr@{}}
+      \toprule
+      方法 & 编码器 & BF1\(\uparrow\) & HD95\(\downarrow\)
+        & ASSD\(\downarrow\) & Params\(\downarrow\) & FPS\(\uparrow\) \\
+      \midrule
+      U-Net & ResNet34 & 64.55 & 50.50 & 17.38 & 24.44 & 303.50 \\
+      U-Net++ & ResNet34 & 63.65 & 51.69 & 17.65 & 26.08 & 145.91 \\
+      MA-Net & ResNet34 & 64.97 & 51.01 & 20.00 & 31.78 & 161.72 \\
+      FPN & ResNet34 & 60.70 & 46.53 & \underline{14.42} & 23.16 & \underline{336.11} \\
+      PSPNet & ResNet34 & 51.54 & 52.78 & 18.57 & 21.44 & \textbf{435.84} \\
+      DeepLabV3+ & ResNet34 & 59.07 & 56.80 & 19.69 & 22.44 & 222.60 \\
+      U-Net & MobileNetV2 & 62.30 & 53.77 & 18.67 & 6.63 & 227.07 \\
+      DeepLabV3+ & MobileNetV2 & 59.31 & 53.10 & 19.36 & \underline{4.38} & 304.09 \\
+      SegFormer & MiT-B0 & 61.51 & 46.72 & 16.81 & \textbf{3.71} & 227.64 \\
+      SegFormer & MiT-B2 & \underline{65.89} & \underline{43.24} & 15.76 & 24.72 & 127.81 \\
+      \midrule
+      \textbf{BiMSeg} & ResNet50 & \textbf{68.56} & \textbf{42.66} & \textbf{14.32} & 39.52 & 77.05 \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：BF1 为边界 F1 分数，以百分数表示；HD95 为第 95 百分位豪斯多夫距离，ASSD 为平均对称表面距离，两者均以像素为单位；Params 为模型参数量，以百万（M）计；FPS 为推理速度，以每秒处理的图像数计。\(\uparrow\) 表示越大越优，\(\downarrow\) 表示越小越优。粗体和下划线分别表示各列的最优值和次优值。\par
+    \vspace{2pt}
+    \noindent Note: BF1 is the boundary F1 score (\%); HD95 is the 95th-percentile Hausdorff distance and ASSD is the average symmetric surface distance, both measured in pixels. Params denotes the number of model parameters in millions, and FPS denotes inference throughput in frames per second. Upward and downward arrows indicate that higher and lower values are preferred, respectively. Bold and underlined values indicate the best and second-best results in each column, respectively.\par
+  \end{minipage}\par
+\end{table}
+
+BiMSeg 在三项边界指标上均取得最优结果，
+BF1 为 68.56\%，
+HD95 和 ASSD 分别为 42.66 和 14.32 像素。
+相较于 SegFormer MiT-B2，
+BiMSeg 的 BF1 提高 2.67 个百分点，
+HD95 和 ASSD 分别降低 0.58 和 1.44 像素。
+相较于 ASSD 次优的 FPN，
+BiMSeg 的平均边界距离降低 0.10 像素。
+不同边界指标下的排序并不完全一致：
+FPN 的 ASSD 优于 SegFormer MiT-B2，
+但其 BF1 和 HD95 较差，
+说明平均边界偏差、较大边界偏差与
+给定距离容差下的匹配比例提供了不同的评价信息。
+BiMSeg 在三项指标上均取得改善，
+与区域重叠指标的结果共同表明，
+其在该测试集上具有较好的植被区域与轮廓预测表现。
+
+为考察 BiMSeg 的精度优势是否伴随额外的推理开销，本文选取 SegFormer MiT-B2 作为参照。与同系列的 MiT-B0 相比，MiT-B2 的模型规模更接近 BiMSeg，适合用于比较两者在分割精度与推理效率之间的取舍。在相同测试条件下，BiMSeg 的参数量为 39.52\,M，推理速度为 77.05\,FPS；SegFormer MiT-B2 的参数量为 24.72\,M，推理速度为 127.81\,FPS。相比之下，BiMSeg 在取得更高分割精度的同时，参数量增加了 14.80\,M，推理速度降低了约 39.7\%。
+其余模型则体现了不同的效率优势。PSPNet 的推理速度最高，达到 435.84\,FPS，但其 mIoU 和 BF1 分别为 83.71\% 和 51.54\%；SegFormer MiT-B0 的参数量最小，仅为 3.71\,M，mIoU 为 86.80\%。因此，在重视冠层区域与边界识别精度的任务中，BiMSeg 更具优势；若主要受处理速度或模型规模限制，则 PSPNet 和 SegFormer MiT-B0 分别提供了相应的选择。
+
+综合区域指标与边界指标，
+BiMSeg 在 VegAnn 测试集上取得了较高的
+植被区域重叠程度和轮廓匹配质量，
+但 Precision、参数规模与推理速度
+并未同时占优。
+上述结果反映了所比较完整模型配置的综合表现，
+不能单独用于判断某个组成模块的贡献；
+模块作用将在后续消融实验中进一步分析。
+
+
+
+
+
+
+\medskip\noindent\textbf{GWFSS 数据集上的结果}\par
+\label{sec:exp-gwfss}
+
+表~\ref{tab:gwfss-comparison} 汇总了各方法在 GWFSS
+测试集上的整体分割性能与推理效率。
+mIoU 和 mAcc 对包含背景的四个类别取宏平均，
+\(\mathrm{mIoU}_{\mathrm{fg}}\) 和 Dice
+仅对穗、茎和叶三个前景类别取宏平均。
+分割指标均以百分数报告，参数量以百万为单位。
+各数值列的最优结果以粗体表示，
+次优结果以下划线表示。
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{不同方法在 GWFSS 测试集上的分割性能与推理效率}
+    {Segmentation performance and inference efficiency on the GWFSS test set}
+    {tab:gwfss-comparison}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llrrrrrrr@{}}
+      \toprule
+      方法 & 编码器 & mIoU\(\uparrow\) & \(\mathrm{mIoU}_{\mathrm{fg}}\uparrow\)
+        & Dice\(\uparrow\) & mAcc\(\uparrow\) & PA\(\uparrow\)
+        & Params\(\downarrow\) & FPS\(\uparrow\) \\
+      \midrule
+      U-Net & ResNet34 & 66.52 & 62.26 & 73.89 & 76.75 & 86.83 & 24.44 & \underline{251.22} \\
+      U-Net++ & ResNet34 & 68.76 & 64.96 & 76.54 & 79.10 & 87.70 & 26.08 & 152.95 \\
+      MA-Net & ResNet34 & 66.07 & 61.67 & 73.44 & 76.58 & 86.65 & 31.78 & 149.51 \\
+      FPN & ResNet34 & 64.58 & 60.33 & 72.30 & 74.44 & 86.00 & 23.16 & 225.55 \\
+      PSPNet & ResNet34 & 59.35 & 54.80 & 67.29 & 70.14 & 83.33 & 21.45 & \textbf{492.87} \\
+      DeepLabV3+ & ResNet34 & 64.97 & 60.80 & 72.60 & 74.69 & 86.16 & 22.44 & 236.42 \\
+      U-Net & MobileNetV2 & 58.12 & 51.21 & 58.00 & 66.27 & 86.17 & 6.63 & 194.22 \\
+      DeepLabV3+ & MobileNetV2 & 60.58 & 55.50 & 66.91 & 70.15 & 84.72 & \underline{4.38} & 200.82 \\
+      SegFormer & MiT-B0 & 65.19 & 60.55 & 72.34 & 74.68 & 86.72 & \textbf{3.72} & 156.81 \\
+      SegFormer & MiT-B2 & \underline{69.56} & \underline{65.82}
+        & \underline{77.26} & \underline{79.26} & \underline{88.26} & 24.72 & 86.03 \\
+      \midrule
+      \textbf{BiMSeg} & ResNet50 & \textbf{71.14} & \textbf{67.64}
+        & \textbf{78.78} & \textbf{80.37} & \textbf{88.91} & 39.52 & 64.40 \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：mIoU 为包含背景在内的各类别平均交并比，\(\mathrm{mIoU}_{\mathrm{fg}}\) 为仅对前景类别取平均的交并比，Dice 为戴斯相似系数，mAcc 为类别平均像素准确率，PA 为总体像素准确率。上述分割指标均以百分数表示。Params 为模型参数量，以百万（M）计；FPS 为推理速度，以每秒处理的图像数计。\(\uparrow\) 表示越大越优，\(\downarrow\) 表示越小越优。粗体和下划线分别表示各列的最优值和次优值。\par
+    \vspace{2pt}
+    \noindent Note: mIoU is the mean intersection over union across all classes, including background, whereas \(\mathrm{mIoU}_{\mathrm{fg}}\) averages over foreground classes only. Dice is the Dice similarity coefficient, mAcc is the mean per-class pixel accuracy, and PA is the overall pixel accuracy. All segmentation metrics are expressed as percentages. Params denotes the number of model parameters in millions, and FPS denotes inference throughput in frames per second. Upward and downward arrows indicate that higher and lower values are preferred, respectively. Bold and underlined values indicate the best and second-best results in each column, respectively.\par
+  \end{minipage}\par
+\end{table}
+
+BiMSeg 在五项整体分割指标上均取得最高数值，
+mIoU、前景 mIoU 和 Dice 分别为
+71.14\%、67.64\% 和 78.78\%，
+mAcc 和 PA 分别为 80.37\% 和 88.91\%。
+相较于 mIoU 最高的对比配置 SegFormer MiT-B2，
+BiMSeg 的 mIoU、前景 mIoU 和 Dice
+分别提高 1.58、1.82 和 1.52 个百分点，
+mAcc 和 PA 分别提高 1.11 和 0.65 个百分点。
+包含背景的类别平均指标与前景宏平均指标均有所提高，
+说明其性能优势不仅体现在整体像素分类上，
+也体现在植物器官的区域重叠程度上。
+
+在采用 ResNet34 编码器的方法中，
+U-Net++ 的五项整体分割指标均为最高，
+其 mIoU 和 Dice 分别达到 68.76\% 和 76.54\%。
+BiMSeg 相较于该配置的两项指标分别提高
+2.38 和 2.24 个百分点。
+不过，宏平均指标无法充分揭示不同器官之间的性能差异，
+因此进一步比较各前景类别的 IoU、Precision 和 Recall，
+结果见表~\ref{tab:gwfss-organ-comparison}。
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{不同方法在 GWFSS 测试集上的逐器官分割性能}
+    {Per-organ segmentation performance on the GWFSS test set}
+    {tab:gwfss-organ-comparison}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}ll*{9}{r}@{}}
+      \toprule
+      方法 & 编码器 & \multicolumn{3}{c}{穗}
+        & \multicolumn{3}{c}{茎} & \multicolumn{3}{c}{叶} \\
+      \cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}
+      & & IoU\(\uparrow\) & P\(\uparrow\) & R\(\uparrow\)
+        & IoU\(\uparrow\) & P\(\uparrow\) & R\(\uparrow\)
+        & IoU\(\uparrow\) & P\(\uparrow\) & R\(\uparrow\) \\
+      \midrule
+      U-Net & ResNet34
+        & 77.83 & 87.18 & 87.89 & 29.54 & 49.51 & 42.27 & 79.40 & 87.27 & 89.80 \\
+      U-Net++ & ResNet34
+        & 79.15 & 86.65 & \underline{90.13} & 35.18 & 56.40 & 48.31
+        & 80.54 & \underline{88.44} & 90.02 \\
+      MA-Net & ResNet34
+        & 76.75 & 85.99 & 87.72 & 29.14 & 48.91 & 41.88 & 79.13 & 87.49 & 89.22 \\
+      FPN & ResNet34
+        & 74.85 & 85.04 & 86.21 & 27.69 & 54.08 & 36.21 & 78.43 & 85.88 & 90.04 \\
+      PSPNet & ResNet34
+        & 67.89 & 79.20 & 82.62 & 21.33 & 48.80 & 27.49 & 75.17 & 83.60 & 88.17 \\
+      DeepLabV3+ & ResNet34
+        & 76.15 & 86.17 & 86.76 & 27.63 & 53.02 & 36.59 & 78.63 & 85.85 & 90.34 \\
+      U-Net & MobileNetV2
+        & 74.57 & 84.63 & 86.25 & 0.21 & 52.60 & 0.21 & 78.85 & 84.26 & \textbf{92.46} \\
+      DeepLabV3+ & MobileNetV2
+        & 71.95 & 82.90 & 84.49 & 17.76 & 46.83 & 22.24 & 76.80 & 84.30 & 89.62 \\
+      SegFormer & MiT-B0
+        & 75.02 & 85.01 & 86.45 & 27.19 & 54.53 & 35.17 & 79.43 & 86.41 & 90.76 \\
+      SegFormer & MiT-B2
+        & \underline{79.54} & \underline{87.31} & 89.94
+        & \underline{36.38} & \underline{59.48} & \underline{48.38}
+        & \underline{81.52} & 88.16 & \underline{91.55} \\
+      \midrule
+      \textbf{BiMSeg} & ResNet50
+        & \textbf{81.51} & \textbf{88.59} & \textbf{91.07}
+        & \textbf{39.14} & \textbf{64.50} & \textbf{49.88}
+        & \textbf{82.27} & \textbf{89.51} & 91.06 \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：IoU 为交并比（Intersection over Union），P 为精确率（Precision），R 为召回率（Recall），均以百分数表示。\(\uparrow\) 表示越大越优；粗体和下划线分别标示各列的最优值和次优值。\par
+    \vspace{2pt}
+    \noindent Note: IoU, P, and R denote intersection over union, precision, and recall, respectively, and are reported as percentages. \(\uparrow\) indicates that higher values are better. Bold and underlined values mark the best and second-best results in each column, respectively.\par
+  \end{minipage}\par
+\end{table}
+
+BiMSeg 在穗、茎和叶三个前景类别上均取得最高 IoU，
+分别为 81.51\%、39.14\% 和 82.27\%。
+相较于次优的方法 SegFormer MiT-B2，
+三个类别的 IoU 分别提高
+1.97、2.76 和 0.75 个百分点，
+其中茎类别的绝对提升幅度最大。
+穗类别的 Precision 和 Recall
+分别为 88.59\% 和 91.07\%，
+较 SegFormer MiT-B2 分别提高
+1.28 和 1.13 个百分点，
+表明其预测精确率与真实穗像素的检出比例均有所改善。
+
+茎类别仍是各方法的主要性能短板。
+即使采用 BiMSeg，其茎 IoU 也仅为 39.14\%，
+明显低于穗和叶的对应结果。
+BiMSeg 的茎 Precision 和 Recall
+分别为 64.50\% 和 49.88\%，
+较 SegFormer MiT-B2 分别提高
+5.02 和 1.50 个百分点。
+因此，茎类别的区域重叠改善同时伴随着
+预测精确率和召回率的提高，
+其中精确率的改善幅度更大。
+然而，49.88\% 的召回率表明，
+仍有约一半的真实茎像素未被正确识别，
+茎区域的识别完整性仍是进一步提升性能的重要方向。
+
+叶类别呈现出不同的精确率与召回率权衡。
+BiMSeg 的叶 IoU 和 Precision
+分别为 82.27\% 和 89.51\%，均为最高值，
+但 Recall 为 91.06\%，
+低于 SegFormer MiT-B2 的 91.55\%，
+也低于 U-Net MobileNetV2 的 92.46\%。
+相较于 SegFormer MiT-B2，
+BiMSeg 的叶 Precision 提高 1.35 个百分点，
+Recall 降低 0.49 个百分点，
+同时获得 0.75 个百分点的 IoU 提升。
+这表明，最高的单项召回率并不必然对应
+最优的区域重叠表现，
+需要结合预测精确率共同评价叶类别的分割质量。
+
+采用 MobileNetV2 编码器的 U-Net
+进一步体现了总体像素准确率的局限。
+该配置的 PA 为 86.17\%，
+叶 Recall 达到所有方法中的最高值，
+但茎 IoU 和 Recall 均仅为 0.21\%，
+其前景 mIoU 和 Dice 分别为
+51.21\% 和 58.00\%。
+这说明较高的 PA 或某一类别的 Recall
+可能与其他类别的较差表现同时存在。
+对于多器官分割任务，
+类别宏平均指标与逐器官结果能够提供
+总体像素准确率之外的必要信息。
+
+从模型规模与推理效率来看，
+BiMSeg 的参数量为 39.52\,M，
+推理速度为 64.40\,FPS；
+SegFormer MiT-B2 的参数量和推理速度
+分别为 24.72\,M 和 86.03\,FPS。
+BiMSeg 的参数量较后者增加 14.80\,M，
+并具有更长的单次前向推理时间，
+表明其分割精度优势伴随着额外的模型与推理开销。
+PSPNet 的推理速度最高，达到 492.87\,FPS，
+但其 mIoU 为 59.35\%；
+SegFormer MiT-B0 的参数量最小，为 3.72\,M，
+其 mIoU 为 65.19\%。
+不同配置由此呈现出分割精度、
+参数规模与推理速度之间的不同权衡。
+
+综合整体指标与逐器官结果，
+BiMSeg 在 GWFSS 测试集上取得了最高的
+五项整体分割指标及三个前景类别的 IoU。
+其中，穗和茎类别的 Precision 与 Recall
+均优于所比较方法，
+叶类别则在召回率未占优的情况下取得更高的 IoU。
+其主要局限仍在于茎类别的漏检、
+较大的参数规模与较低的推理速度。
+由于各方法采用的编码器和参数规模不同，
+上述结果反映的是完整模型配置的综合表现，
+各组成模块的作用将在消融实验中进一步分析。
+
+
+
+
+\medskip\noindent\textbf{RiceSEG 数据集上的结果}\par
+\label{sec:exp-riceseg}
+
+表~\ref{tab:riceseg-comparison} 汇总了各方法在 RiceSEG
+测试集上的整体分割性能与推理效率。
+评价口径与 GWFSS 保持一致：
+mIoU 和 mAcc 对包含背景的六个类别取宏平均，
+前景 mIoU 与 Dice 仅对五个非背景类别取宏平均。
+分割指标均以百分数报告，参数量以百万为单位。
+各数值列的最优结果以粗体表示，
+次优结果以下划线表示。
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{不同方法在 RiceSEG 测试集上的分割性能与推理效率}
+    {Segmentation performance and inference efficiency on the RiceSEG test set}
+    {tab:riceseg-comparison}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}llrrrrrrr@{}}
+      \toprule
+      方法 & 编码器 & mIoU\(\uparrow\) & \(\mathrm{mIoU}_{\mathrm{fg}}\uparrow\)
+        & Dice\(\uparrow\) & mAcc\(\uparrow\) & PA\(\uparrow\)
+        & Params\(\downarrow\) & FPS\(\uparrow\) \\
+      \midrule
+      U-Net & ResNet34
+        & 70.11 & 66.41 & 79.01 & 81.38 & 92.22 & 24.44 & 220.97 \\
+      U-Net++ & ResNet34
+        & 70.21 & 66.45 & 79.03 & 80.99 & \underline{92.47} & 26.08 & 152.63 \\
+      MA-Net & ResNet34
+        & 70.11 & 66.46 & 78.85 & 82.42 & 92.29 & 31.78 & 161.24 \\
+      FPN & ResNet34
+        & 68.78 & 65.08 & 78.01 & 79.81 & 91.49 & 23.16 & 203.50 \\
+      PSPNet & ResNet34
+        & 63.20 & 59.12 & 73.24 & 76.21 & 88.99 & 21.46 & \textbf{444.62} \\
+      DeepLabV3+ & ResNet34
+        & 69.52 & 65.95 & 78.56 & 79.83 & 91.70 & 22.44 & \underline{235.96} \\
+      U-Net & MobileNetV2
+        & 68.73 & 64.79 & 77.75 & 80.36 & 91.96 & 6.63 & 199.84 \\
+      DeepLabV3+ & MobileNetV2
+        & 68.11 & 64.29 & 77.34 & 78.85 & 91.43 & \underline{4.38} & 211.48 \\
+      SegFormer & MiT-B0
+        & 70.78 & 67.44 & 79.78 & 82.27 & 91.80 & \textbf{3.72} & 166.91 \\
+      SegFormer & MiT-B2
+        & \underline{72.35} & \underline{69.23} & \underline{81.05}
+        & \underline{83.83} & 92.25 & 24.72 & 89.45 \\
+      \midrule
+      \textbf{BiMSeg} & ResNet50
+        & \textbf{73.97} & \textbf{70.86} & \textbf{82.27}
+        & \textbf{83.97} & \textbf{93.09} & 39.52 & 66.83 \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：mIoU 为包含背景在内的各类别平均交并比，\(\mathrm{mIoU}_{\mathrm{fg}}\) 为仅对前景类别取平均的交并比，Dice 为戴斯相似系数，mAcc 为类别平均像素准确率，PA 为总体像素准确率。分割指标均以百分数表示。Params 为模型参数量，以百万（M）计；FPS 为推理速度，以每秒处理的图像数计。\(\uparrow\) 表示数值越大越优，\(\downarrow\) 表示数值越小越优。粗体和下划线分别表示各列的最优值和次优值。\par
+    \vspace{2pt}
+    \noindent Note: mIoU is the mean intersection over union across all classes, including background, whereas \(\mathrm{mIoU}_{\mathrm{fg}}\) averages over foreground classes only. Dice is the Dice similarity coefficient, mAcc is mean per-class pixel accuracy, and PA is overall pixel accuracy. Segmentation metrics are expressed as percentages. Params denotes the number of model parameters in millions, and FPS denotes inference throughput in frames per second. Upward and downward arrows indicate that higher and lower values are preferred, respectively. Bold and underlined values indicate the best and second-best results in each column, respectively.\par
+  \end{minipage}\par
+\end{table}
+
+BiMSeg 在五项整体分割指标上均取得最高数值，
+mIoU、前景 mIoU 和 Dice 分别为
+73.97\%、70.86\% 和 82.27\%，
+mAcc 和 PA 分别为 83.97\% 和 93.09\%。
+相较于 mIoU 最高的对比配置 SegFormer MiT-B2，
+BiMSeg 的 mIoU、前景 mIoU 和 Dice
+分别提高 1.62、1.63 和 1.22 个百分点，
+PA 提高 0.84 个百分点，
+而 mAcc 仅提高 0.14 个百分点。
+这表明，相较于该配置，
+BiMSeg 的优势主要体现在区域重叠程度上，
+平均类别召回率的改善幅度相对有限。
+
+为进一步考察整体指标背后的类别差异，
+表~\ref{tab:riceseg-class-a} 和
+表~\ref{tab:riceseg-class-b}
+分别报告六个类别的 IoU、Precision 和 Recall。
+逐类别结果与整体指标均基于
+整个测试集累计的混淆矩阵计算。
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{不同方法在 RiceSEG 测试集上对背景、绿色植被及衰老植被的分割性能}
+    {Segmentation performance for background, green vegetation, and senescent vegetation on the RiceSEG test set}
+    {tab:riceseg-class-a}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{1.5pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}ll*{9}{r}@{}}
+      \toprule
+      方法 & 编码器 & \multicolumn{3}{c}{背景}
+        & \multicolumn{3}{c}{绿色植被} & \multicolumn{3}{c}{衰老植被} \\
+      \cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}
+      & & IoU\(\uparrow\) & P\(\uparrow\) & R\(\uparrow\)
+        & IoU\(\uparrow\) & P\(\uparrow\) & R\(\uparrow\)
+        & IoU\(\uparrow\) & P\(\uparrow\) & R\(\uparrow\) \\
+      \midrule
+      U-Net & ResNet34
+        & 88.64 & \underline{94.57} & 93.40 & 86.48 & 91.64 & 93.88 & 52.02 & 71.70 & 65.46 \\
+      U-Net++ & ResNet34
+        & \underline{89.06} & \underline{94.57} & \underline{93.86}
+        & \underline{86.98} & 92.12 & \underline{93.98} & 53.05 & 71.48 & 67.29 \\
+      MA-Net & ResNet34
+        & 88.40 & 94.30 & 93.39 & 86.85 & \underline{92.36} & 93.57
+        & 52.29 & 69.00 & \underline{68.35} \\
+      FPN & ResNet34
+        & 87.27 & 93.53 & 92.88 & 85.25 & 91.15 & 92.95 & 50.67 & \underline{73.08} & 62.30 \\
+      PSPNet & ResNet34
+        & 83.62 & 91.76 & 90.40 & 81.08 & 88.29 & 90.85 & 45.35 & 65.38 & 59.69 \\
+      DeepLabV3+ & ResNet34
+        & 87.36 & 93.78 & 92.73 & 85.69 & 91.27 & 93.34 & 49.86 & 71.41 & 62.30 \\
+      U-Net & MobileNetV2
+        & 88.46 & 94.21 & 93.54 & 86.15 & 91.94 & 93.18 & 50.70 & 70.35 & 64.47 \\
+      DeepLabV3+ & MobileNetV2
+        & 87.23 & 93.84 & 92.53 & 85.29 & 90.87 & 93.29 & 48.95 & 69.89 & 62.03 \\
+      SegFormer & MiT-B0
+        & 87.46 & 93.63 & 92.99 & 85.76 & 91.93 & 92.74 & 51.73 & 72.68 & 64.22 \\
+      SegFormer & MiT-B2
+        & 87.92 & 94.21 & 92.94 & 86.50 & 92.09 & 93.44
+        & \underline{54.04} & \textbf{73.22} & 67.36 \\
+      \midrule
+      \textbf{BiMSeg} & ResNet50
+        & \textbf{89.52} & \textbf{94.71} & \textbf{94.23}
+        & \textbf{87.93} & \textbf{93.15} & \textbf{94.00}
+        & \textbf{54.56} & 71.37 & \textbf{69.84} \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+\noindent 注：IoU 为交并比（Intersection over Union），P 为精确率（Precision），R 为召回率（Recall），均以 \% 表示。\(\uparrow\) 表示越大越优；粗体和下划线分别标示各列最优值和次优值。\par
+\vspace{2pt}
+\noindent Note: IoU, P, and R denote intersection over union, precision, and recall, respectively. All metrics are expressed as percentages. \(\uparrow\) indicates higher is better; bold and underlined values mark the best and second-best results in each column, respectively.\par
+  \end{minipage}\par
+\end{table}
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{不同方法在 RiceSEG 测试集上对稻穗、杂草及浮萍的分割性能}
+    {Segmentation performance for rice panicles, weeds, and duckweed on the RiceSEG test set}
+    {tab:riceseg-class-b}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{1.5pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}ll*{9}{r}@{}}
+      \toprule
+      方法 & 编码器 & \multicolumn{3}{c}{稻穗}
+        & \multicolumn{3}{c}{杂草} & \multicolumn{3}{c}{浮萍} \\
+      \cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(lr){9-11}
+      & & IoU\(\uparrow\) & P\(\uparrow\) & R\(\uparrow\)
+        & IoU\(\uparrow\) & P\(\uparrow\) & R\(\uparrow\)
+        & IoU\(\uparrow\) & P\(\uparrow\) & R\(\uparrow\) \\
+      \midrule
+      U-Net & ResNet34
+        & 78.55 & 86.38 & 89.64 & 61.32 & 83.35 & 69.88
+        & \underline{53.67} & 64.62 & \textbf{76.00} \\
+      U-Net++ & ResNet34
+        & 77.60 & \underline{88.55} & 86.26 & 62.86 & 83.18 & 72.02
+        & 51.73 & 64.35 & 72.50 \\
+      MA-Net & ResNet34
+        & 77.46 & 87.95 & 86.66 & 68.94 & \underline{83.96} & 79.39
+        & 46.76 & 56.43 & 73.16 \\
+      FPN & ResNet34
+        & 75.75 & 86.48 & 85.93 & 63.42 & 80.80 & 74.66
+        & 50.33 & 64.04 & 70.15 \\
+      PSPNet & ResNet34
+        & 70.86 & 82.91 & 82.98 & 55.67 & 78.60 & 65.62
+        & 42.64 & 53.53 & 67.71 \\
+      DeepLabV3+ & ResNet34
+        & 76.38 & 86.58 & 86.63 & 68.62 & 83.44 & 79.44
+        & 49.20 & \underline{67.45} & 64.52 \\
+      U-Net & MobileNetV2
+        & 76.69 & 86.61 & 87.01 & 59.32 & 75.81 & 73.16
+        & 51.09 & 64.71 & 70.82 \\
+      DeepLabV3+ & MobileNetV2
+        & 75.13 & 84.63 & 87.01 & 63.35 & 82.12 & 73.49
+        & 48.72 & 66.32 & 64.74 \\
+      SegFormer & MiT-B0
+        & 77.87 & 86.83 & 88.30 & 68.80 & 79.20 & \underline{83.97}
+        & 53.05 & 67.37 & 71.39 \\
+      SegFormer & MiT-B2
+        & \underline{80.13} & 87.63 & \underline{90.35}
+        & \textbf{72.33} & 82.61 & \textbf{85.32} & 53.16 & 65.71 & 73.56 \\
+      \midrule
+      \textbf{BiMSeg} & ResNet50
+        & \textbf{81.41} & \textbf{88.61} & \textbf{90.92}
+        & \underline{72.25} & \textbf{86.81} & 81.16
+        & \textbf{58.14} & \textbf{73.43} & \underline{73.64} \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：IoU 为交并比（Intersection over Union），P 为精确率（Precision），R 为召回率（Recall），均以百分数表示。\(\uparrow\) 表示越大越优；粗体和下划线分别标示各列的最优值和次优值。\par
+    \vspace{2pt}
+    \noindent Note: IoU, P, and R denote intersection over union, precision, and recall, respectively; all are reported as percentages. \(\uparrow\) indicates that higher values are better. Bold and underlined values mark the best and second-best results in each column, respectively.\par
+  \end{minipage}\par
+\end{table}
+
+BiMSeg 在六个类别中的五个类别上取得最高 IoU，
+背景、绿色植被、衰老植被、稻穗和浮萍
+分别达到 89.52\%、87.93\%、54.56\%、
+81.41\% 和 58.14\%。
+相较于 SegFormer MiT-B2，
+对应类别的 IoU 分别提高
+1.60、1.43、0.52、1.28 和 4.98 个百分点。
+杂草 IoU 为 72.25\%，
+较 SegFormer MiT-B2 低 0.08 个百分点。
+因此，整体性能提升分布于多个类别，
+其中浮萍类别的改善幅度最大，
+但并未覆盖全部类别。
+
+绿色植被与稻穗类别的 Precision 和 Recall
+均由 BiMSeg 取得最高值。
+绿色植被的两项指标分别为 93.15\% 和 94.00\%，
+较 SegFormer MiT-B2 分别提高
+1.06 和 0.56 个百分点；
+稻穗的两项指标分别为 88.61\% 和 90.92\%，
+较该配置分别提高 0.98 和 0.57 个百分点。
+这些结果表明，BiMSeg 在上述类别上
+同时提高了预测精确率与真实像素检出比例，
+与更高的区域 IoU 相一致。
+
+衰老植被仍是较难分割的类别。
+BiMSeg 的衰老植被 IoU 为 54.56\%，
+虽为所比较方法中的最高值，
+但仍明显低于绿色植被和稻穗。
+相较于 SegFormer MiT-B2，
+其 Recall 由 67.36\% 提高至 69.84\%，
+增加 2.48 个百分点；
+Precision 则由 73.22\% 降至 71.37\%，
+降低 1.85 个百分点。
+这说明其区域重叠改善伴随着
+更高的真实衰老植被像素检出比例，
+同时预测精确率有所下降，
+该类别的识别仍存在较大的改进空间。
+
+浮萍类别的 IoU 提升最为明显。
+BiMSeg 的 Precision 为 73.43\%，
+较 SegFormer MiT-B2 提高 7.72 个百分点，
+Recall 则由 73.56\% 提高至 73.64\%，
+仅增加 0.08 个百分点。
+在召回率接近的情况下，
+更高的预测精确率对应了更高的区域重叠程度。
+相比之下，U-Net ResNet34 的浮萍 Recall
+达到最高的 76.00\%，
+但 Precision 为 64.62\%，
+IoU 为 53.67\%。
+这表明，单独提高召回率并不足以保证
+浮萍类别的整体分割质量。
+
+杂草类别呈现出另一种精确率与召回率权衡。
+BiMSeg 的 Precision 为 86.81\%，
+较 SegFormer MiT-B2 提高 4.20 个百分点；
+Recall 为 81.16\%，
+较后者降低 4.16 个百分点。
+两者最终取得接近的 IoU，
+分别为 72.25\% 和 72.33\%。
+因此，BiMSeg 在该类别上具有更高的预测精确率，
+但真实杂草像素的检出比例较低，
+整体指标的提高并不意味着各类别的
+Precision 与 Recall 均同步改善。
+
+在采用 ResNet34 编码器的方法中，
+U-Net++ 的 mIoU 和 Dice 最高，
+分别为 70.21\% 和 79.03\%。
+BiMSeg 相较于该配置的两项指标分别提高
+3.76 和 3.24 个百分点。
+采用 MiT-B0 编码器的 SegFormer
+以 3.72\,M 的参数量取得
+70.78\% 的 mIoU 和 79.78\% 的 Dice。
+BiMSeg 相较于该配置分别提高
+3.19 和 2.49 个百分点，
+但需要更大的参数规模。
+
+效率方面，BiMSeg 的参数量为 39.52\,M，
+推理速度为 66.83\,FPS；
+SegFormer MiT-B2 的参数量为 24.72\,M，
+推理速度为 89.45\,FPS。
+BiMSeg 的参数量较后者增加 14.80\,M，
+并具有更长的单次前向推理时间。
+PSPNet 的推理速度最高，达到 444.62\,FPS，
+但其 mIoU 和 Dice 分别为 63.20\% 和 73.24\%。
+上述结果表明，
+BiMSeg 的整体精度优势伴随着额外的模型与推理开销，
+尚不具备参数规模和推理速度方面的优势。
+
+结合 GWFSS 的结果，
+BiMSeg 在两个多分类数据集上
+均取得最高的五项整体分割指标。
+RiceSEG 的逐类别结果进一步表明，
+其区域重叠优势覆盖多数类别，
+但衰老植被和浮萍的分割精度仍相对有限，
+杂草类别的召回率也有待提高。
+由于各方法采用的编码器和参数规模不同，
+上述比较反映的是完整模型配置的综合表现，
+各组成模块的作用将在后续消融实验中进一步分析。
+
+
+
+
+
+
+\subsubsection{消融实验}
+\label{sec:exp-ablation}
+
+为考察不同特征处理与融合模块的作用，
+围绕多尺度稀疏交叉注意力模块（MSCA）、
+动态关系与上下文融合模块（DRCF）
+及差异引导的跨尺度自适应调制模块（DCAM）
+开展消融实验。
+通过比较基础网络、单模块配置及不同模块组合，
+分析整体分割精度、逐类别表现与模型开销的变化。
+
+\medskip\noindent\textbf{实验设计}\par
+\label{sec:exp-ablation-design}
+
+在 GWFSS 和 RiceSEG 数据集上分别设置八种模型配置。
+基线保留 ResNet50 编码器、横向通道映射、
+双向特征传递路径、前景辅助监督、
+RGB 细节分支及分割预测结构，
+仅对三个目标模块进行替换。
+移除 MSCA 时直接传递输入特征；
+移除 DRCF 时，将深层特征上采样后
+与浅层特征相加，再通过基础卷积融合；
+移除 DCAM 时，将浅层特征下采样后
+与深层特征相加，再通过基础卷积融合。
+上述操作保持各层级的特征尺寸与基本信息通路，
+用于比较目标模块与基础特征处理方式的差异。
+
+将基线记为 A0，
+分别引入 MSCA、DRCF 和 DCAM 的配置
+记为 A1、A2 和 A3；
+引入 MSCA 与 DRCF、MSCA 与 DCAM、
+DRCF 与 DCAM 的配置依次记为 A4、A5 和 A6；
+三个模块全部启用的完整 BiMSeg 记为 A7。
+各配置均采用 ImageNet 预训练权重初始化
+ResNet50 编码器。
+
+采用 mIoU、前景 mIoU 和 Dice
+评价整体区域分割性能，
+通过逐类别 IoU 分析不同器官与植被类型的变化，
+同时报告参数量与推理速度。
+各指标的定义与前述对比实验一致。
+表中分割指标以百分数报告，参数量以百万为单位；
+最优结果以粗体表示，次优结果以下划线表示。
+
+\medskip\noindent\textbf{GWFSS 数据集上的模块消融结果}\par
+\label{sec:exp-ablation-gwfss}
+
+表~\ref{tab:gwfss-ablation}
+给出了八种配置在 GWFSS 测试集上的整体结果。
+完整配置 A7 的 mIoU、前景 mIoU 和 Dice
+分别为 71.14\%、67.64\% 和 78.78\%，
+均为所比较配置中的最高值；
+仅引入 DCAM 的 A3 在三项指标上均位居次优。
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{GWFSS 测试集上的模块消融结果}
+    {Module ablation results on the GWFSS test set}{tab:gwfss-ablation}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lcccrrrrr@{}}
+      \toprule
+      配置 & MSCA & DRCF & DCAM
+        & mIoU\(\uparrow\) & \(\mathrm{mIoU}_{\mathrm{fg}}\uparrow\)
+        & Dice\(\uparrow\) & Params\(\downarrow\) & FPS\(\uparrow\) \\
+      \midrule
+      A0 & -- & -- & --
+        & 69.53 & 65.78 & 77.19 & \textbf{27.68} & \textbf{94.39} \\
+      A1 & \(\checkmark\) & -- & --
+        & 69.38 & 65.64 & 77.00 & \underline{28.23} & \underline{90.62} \\
+      A2 & -- & \(\checkmark\) & --
+        & 69.87 & 66.21 & 77.57 & 32.24 & 83.38 \\
+      A3 & -- & -- & \(\checkmark\)
+        & \underline{70.58} & \underline{67.11} & \underline{78.41} & 34.40 & 82.45 \\
+      A4 & \(\checkmark\) & \(\checkmark\) & --
+        & 69.68 & 65.84 & 77.16 & 32.79 & 79.69 \\
+      A5 & \(\checkmark\) & -- & \(\checkmark\)
+        & 70.10 & 66.41 & 77.73 & 34.96 & 79.15 \\
+      A6 & -- & \(\checkmark\) & \(\checkmark\)
+        & 70.25 & 66.60 & 77.91 & 38.96 & 73.11 \\
+      \midrule
+      A7 & \(\checkmark\) & \(\checkmark\) & \(\checkmark\)
+        & \textbf{71.14} & \textbf{67.64} & \textbf{78.78} & 39.52 & 64.40 \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：\(\checkmark\) 表示启用模块，-- 表示采用基础替代操作。mIoU 和 \(\mathrm{mIoU}_{\mathrm{fg}}\) 分别为全类别和前景类别的平均交并比，Dice 为戴斯相似系数，三者均以 \% 表示。Params 为参数量（百万），FPS 为每秒处理的图像数。\(\uparrow\) 和 \(\downarrow\) 分别表示越大和越小越优；粗体和下划线分别标示最优值和次优值。\par
+    \vspace{2pt}
+    \noindent Note: \(\checkmark\) indicates an enabled module; -- indicates the baseline operation. mIoU and \(\mathrm{mIoU}_{\mathrm{fg}}\) are mean intersection over union across all and foreground classes, respectively. Both and the Dice similarity coefficient are reported as percentages. Params is the parameter count in millions; FPS is frames per second. \(\uparrow\) and \(\downarrow\) indicate higher and lower is better, respectively. Bold and underlining mark the best and second-best values.\par
+  \end{minipage}\par
+\end{table}
+
+在单模块配置中，A3 的精度改善幅度最大。
+相较于基线 A0，其 mIoU、前景 mIoU 和 Dice
+分别提高 1.05、1.33 和 1.22 个百分点。
+引入 DRCF 的 A2 也取得较高的整体指标，
+mIoU 和 Dice 分别提高 0.34 和 0.38 个百分点。
+相比之下，引入 MSCA 的 A1
+在两项指标上分别降低 0.15 和 0.19 个百分点。
+因此，单独引入目标模块并不必然带来精度提升，
+其效果需要结合具体配置评价。
+
+双模块组合未呈现稳定的累积增益。
+A4 的 mIoU 为 69.68\%，
+虽高于基线，但低于仅引入 DRCF 的 A2；
+A5 和 A6 的 mIoU 分别为 70.10\% 和 70.25\%，
+均低于仅引入 DCAM 的 A3。
+完整配置 A7 则取得最高精度，
+其 mIoU、前景 mIoU 和 Dice
+较基线分别提高 1.61、1.86 和 1.59 个百分点，
+较 A3 分别提高 0.56、0.53 和 0.37 个百分点。
+这些结果表明，模块数量与分割精度之间
+不存在简单的单调关系，
+单模块的表现也不能直接用于预测组合效果。
+
+表~\ref{tab:gwfss-ablation-class}
+进一步报告各配置的逐类别 IoU。
+完整配置在背景、穗、茎和叶四个类别上均取得最高值，
+其整体优势覆盖不同类别，
+并非仅由背景识别改善所驱动。
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{GWFSS 模块消融实验的逐类别 IoU}
+    {Per-class IoU in the GWFSS module ablation study}
+    {tab:gwfss-ablation-class}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{6pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lrrrr@{}}
+      \toprule
+      配置 & 背景\(\uparrow\) & 穗\(\uparrow\) & 茎\(\uparrow\) & 叶\(\uparrow\) \\
+      \midrule
+      A0 & 80.79 & 79.95 & 36.05 & 81.34 \\
+      A1 & 80.61 & 80.15 & 35.43 & 81.34 \\
+      A2 & 80.86 & 80.25 & 36.85 & 81.52 \\
+      A3 & 80.99 & \underline{80.65} & \underline{38.78} & 81.89 \\
+      A4 & \underline{81.20} & 80.31 & 35.62 & 81.59 \\
+      A5 & 81.18 & 80.18 & 37.07 & \underline{81.98} \\
+      A6 & 81.18 & 80.57 & 37.48 & 81.76 \\
+      \midrule
+      A7 & \textbf{81.63} & \textbf{81.51} & \textbf{39.14} & \textbf{82.27} \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：IoU 为交并比（Intersection over Union），以百分数表示。\(\uparrow\) 表示越大越好；粗体和下划线分别标示各列的最优值和次优值。配置编号与表~\ref{tab:gwfss-ablation} 一致。\par
+    \vspace{2pt}
+    \noindent Note: IoU denotes intersection over union (\%). \(\uparrow\) indicates that higher values are better. Bold and underlined values indicate the best and second-best results in each column, respectively. Configuration IDs match those in Table~\ref{tab:gwfss-ablation}.\par
+  \end{minipage}\par
+\end{table}
+
+相较于基线，完整配置的穗、茎和叶 IoU
+分别提高 1.56、3.09 和 0.93 个百分点，
+其中茎类别的改善幅度最大。
+仅引入 DCAM 时，
+茎 IoU 已由 36.05\% 提高至 38.78\%，
+完整配置进一步提高至 39.14\%。
+不过，茎 IoU 仍明显低于穗和叶，
+说明该类别依然是限制整体分割性能的主要因素。
+
+不同配置的类别变化并不一致。
+A1 的穗 IoU 高于基线，
+但茎 IoU 降至 35.43\%；
+A4 的背景 IoU 提高至 81.20\%，
+茎 IoU 则低于基线。
+A5 在非完整配置中取得最高的叶 IoU，
+达到 81.98\%，
+但其茎 IoU 仍低于 A3。
+这些差异表明，个别类别的改善
+不必然对应更高的前景宏平均精度，
+需要同时考察不同器官的分割表现。
+
+模型开销方面，
+完整配置的参数量由基线的 27.68\,M
+增加至 39.52\,M，
+推理速度由 94.39\,FPS 降至 64.40\,FPS。
+A3 的参数量为 34.40\,M，
+推理速度为 82.45\,FPS；
+相较于 A3，完整配置增加 5.12\,M 参数，
+并取得 0.56 个百分点的 mIoU 提升。
+因此，A7 在所比较配置中取得最高精度，
+而 A3 以较小的模型规模和较高的推理速度
+获得了接近完整配置的分割表现。
+
+总体而言，
+GWFSS 上的结果显示完整配置具有最高的
+整体区域指标与逐类别 IoU，
+DCAM 则对应最大的单模块精度改善。
+部分双模块组合未超过相应的单模块配置，
+说明模块效果具有配置依赖性，
+不能将完整模型的提升解释为
+各模块独立收益的线性叠加。
+
+\medskip\noindent\textbf{RiceSEG 数据集上的模块消融结果}\par
+\label{sec:exp-ablation-riceseg}
+
+表~\ref{tab:riceseg-ablation}
+给出了八种配置在 RiceSEG 测试集上的整体结果。
+完整配置 A7 的 mIoU、前景 mIoU 和 Dice
+分别为 73.97\%、70.86\% 和 82.27\%，
+均为最高值；
+仅引入 DCAM 的 A3 在三项指标上均位居次优。
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{RiceSEG 测试集上的模块消融结果}
+    {Module ablation results on the RiceSEG test set}
+    {tab:riceseg-ablation}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{2pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lcccrrrrr@{}}
+      \toprule
+      配置 & MSCA & DRCF & DCAM
+        & mIoU\(\uparrow\) & \(\mathrm{mIoU}_{\mathrm{fg}}\uparrow\)
+        & Dice\(\uparrow\) & Params\(\downarrow\) & FPS\(\uparrow\) \\
+      \midrule
+      A0 & -- & -- & --
+        & 71.96 & 68.52 & 80.59 & \textbf{27.68} & \textbf{92.86} \\
+      A1 & \(\checkmark\) & -- & --
+        & 72.68 & 69.37 & 81.20 & \underline{28.23} & \underline{89.52} \\
+      A2 & -- & \(\checkmark\) & --
+        & 72.21 & 68.80 & 80.84 & 32.24 & 82.22 \\
+      A3 & -- & -- & \(\checkmark\)
+        & \underline{73.43} & \underline{70.27} & \underline{81.88} & 34.40 & 81.23 \\
+      A4 & \(\checkmark\) & \(\checkmark\) & --
+        & 71.68 & 68.20 & 80.37 & 32.79 & 78.88 \\
+      A5 & \(\checkmark\) & -- & \(\checkmark\)
+        & 71.08 & 67.45 & 79.84 & 34.96 & 77.92 \\
+      A6 & -- & \(\checkmark\) & \(\checkmark\)
+        & 72.04 & 68.61 & 80.67 & 38.96 & 72.22 \\
+      \midrule
+      A7 & \(\checkmark\) & \(\checkmark\) & \(\checkmark\)
+        & \textbf{73.97} & \textbf{70.86} & \textbf{82.27} & 39.52 & 66.83 \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：\(\checkmark\) 表示启用模块，-- 表示采用相应的基础操作。mIoU 和 \(\mathrm{mIoU}_{\mathrm{fg}}\) 分别为全类别和前景类别的平均交并比，Dice 为戴斯相似系数，均以百分数表示。Params 为参数量（百万），FPS 为每秒处理的图像数。\(\uparrow\) 和 \(\downarrow\) 分别表示越大越优和越小越优；粗体和下划线分别标示各列最优值和次优值。\par
+    \vspace{2pt}
+    \noindent Note: \(\checkmark\) indicates an enabled module; -- indicates the corresponding baseline operation. mIoU and \(\mathrm{mIoU}_{\mathrm{fg}}\) denote mean intersection over union across all classes and foreground classes, respectively. Both metrics and the Dice similarity coefficient are reported as percentages. Params is the parameter count in millions; FPS is frames per second. Arrows indicate the preferred direction. Bold and underlined values mark the best and second-best results in each column, respectively.\par
+  \end{minipage}\par
+\end{table}
+
+三个单模块配置均取得高于基线的整体区域指标。
+其中，A3 的 mIoU、前景 mIoU 和 Dice
+分别提高 1.47、1.75 和 1.29 个百分点，
+对应最大的单模块改善幅度。
+A1 的 mIoU 和 Dice
+分别提高 0.72 和 0.61 个百分点；
+A2 的两项指标均提高 0.25 个百分点。
+与 GWFSS 上的结果不同，
+MSCA 在 RiceSEG 上的单模块配置取得更高精度，
+表明其独立表现具有数据集差异。
+
+双模块配置的精度并未随模块数量增加而持续提高。
+A4 和 A5 的 mIoU 分别为 71.68\% 和 71.08\%，
+较基线分别降低 0.28 和 0.88 个百分点；
+A6 的 mIoU 为 72.04\%，
+仅较基线提高 0.08 个百分点。
+完整配置 A7 的 mIoU、前景 mIoU 和 Dice
+则分别较基线提高 2.01、2.34 和 1.68 个百分点，
+较 A3 分别提高 0.54、0.59 和 0.39 个百分点。
+由此可见，完整配置取得最高整体精度，
+但其优势并不对应各单模块改善幅度的简单累加。
+
+表~\ref{tab:riceseg-ablation-class}
+进一步报告六个类别的 IoU。
+完整配置在背景、绿色植被、稻穗、
+杂草和浮萍五个类别上取得最高值，
+衰老植被则由 A3 取得最高值。
+
+\begin{table}[!htb]
+  \centering
+  \experimentbicaption{RiceSEG 模块消融实验的逐类别 IoU}
+    {Per-class IoU in the RiceSEG module ablation study}
+    {tab:riceseg-ablation-class}
+  \begin{spacing}{1.2}
+    \small
+    \setlength{\tabcolsep}{3pt}
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}lrrrrrr@{}}
+      \toprule
+      配置 & 背景\(\uparrow\) & 绿色植被\(\uparrow\) & 衰老植被\(\uparrow\)
+        & 稻穗\(\uparrow\) & 杂草\(\uparrow\) & 浮萍\(\uparrow\) \\
+      \midrule
+      A0 & 89.19 & 87.38 & 53.95 & 80.21 & 65.30 & 55.77 \\
+      A1 & 89.19 & 87.59 & 54.26 & 79.84 & 70.02 & 55.16 \\
+      A2 & 89.25 & 87.37 & \underline{55.18} & 80.00 & 65.25 & 56.19 \\
+      A3 & 89.24 & \underline{87.78} & \textbf{55.51}
+        & \underline{80.87} & \underline{70.24} & \underline{56.93} \\
+      A4 & 89.08 & 87.14 & 54.72 & 80.71 & 62.34 & 56.09 \\
+      A5 & \underline{89.26} & 87.34 & 54.42 & 78.07 & 62.39 & 55.02 \\
+      A6 & 89.16 & 87.50 & 54.43 & 78.96 & 67.71 & 54.45 \\
+      \midrule
+      A7 & \textbf{89.52} & \textbf{87.93} & 54.56
+        & \textbf{81.41} & \textbf{72.25} & \textbf{58.14} \\
+      \bottomrule
+    \end{tabular*}
+  \end{spacing}
+  \par\vspace{8pt}
+  \noindent\begin{minipage}{\linewidth}
+    \normalfont\zihao{5}\raggedright
+    \noindent 注：IoU 为交并比（Intersection over Union），以百分数表示。\(\uparrow\) 表示越大越好；粗体和下划线分别标示各列的最优值和次优值。配置编号与表~\ref{tab:riceseg-ablation} 一致。\par
+    \vspace{2pt}
+    \noindent Note: IoU denotes intersection over union (\%). \(\uparrow\) indicates that higher values are better. Bold and underlined values mark the best and second-best results in each column, respectively. Configuration IDs match those in Table~\ref{tab:riceseg-ablation}.\par
+  \end{minipage}\par
+\end{table}
+
+相较于基线，
+完整配置的绿色植被、衰老植被、稻穗、
+杂草和浮萍 IoU 分别提高
+0.55、0.61、1.20、6.95 和 2.37 个百分点，
+背景 IoU 提高 0.33 个百分点。
+其中，杂草与浮萍的提升幅度较大，
+是前景宏平均指标改善的重要来源。
+因此，完整配置的整体优势
+不仅体现在背景识别上，
+也体现在多个前景类别的区域分割上。
+
+完整配置相较于 A3 的变化具有类别差异。
+绿色植被、稻穗、杂草和浮萍 IoU
+分别提高 0.15、0.54、2.01 和 1.21 个百分点，
+但衰老植被 IoU 由 55.51\% 降至 54.56\%，
+降低 0.95 个百分点。
+因此，最高的整体宏平均指标
+并不意味着各类别均取得最高精度，
+完整配置的优势来自不同类别表现的综合结果。
+
+单模块与双模块配置也呈现出类别间的不同权衡。
+A1 的杂草 IoU 较基线提高 4.72 个百分点，
+但稻穗与浮萍分别降低 0.37 和 0.61 个百分点。
+A5 的背景 IoU 略高于基线，
+稻穗与杂草 IoU 却分别降低
+2.14 和 2.91 个百分点。
+这些结果说明，
+背景或个别类别的改善不足以代表
+整体前景分割能力的提高，
+需要结合逐类别结果判断配置差异。
+
+模型开销方面，
+A1 的参数量为 28.23\,M，
+较基线增加 0.55\,M，
+推理速度为 89.52\,FPS。
+A3 的参数量为 34.40\,M，
+推理速度为 81.23\,FPS；
+完整配置的参数量为 39.52\,M，
+推理速度为 66.83\,FPS。
+相较于 A3，
+完整配置增加 5.12\,M 参数，
+并获得 0.54 个百分点的 mIoU 提升。
+因此，完整配置提供了更高的整体分割精度，
+但也具有更大的模型规模和推理开销。
+
+综合两个数据集的结果，
+完整配置均取得最高的 mIoU、
+前景 mIoU 和 Dice，
+DCAM 则在单模块配置中对应最大的精度改善幅度。
+MSCA 的单模块表现随数据集变化，
+DRCF 的单模块改善幅度相对较小。
+与此同时，部分双模块配置未保持单模块的精度优势，
+完整配置也未在 RiceSEG 的全部类别上取得最高 IoU。
+这些结果支持完整配置在所比较模型中的整体精度优势，
+但不足以说明各模块收益能够简单相加，
+也不能将所有类别的改善归因于同一机制。
+模型配置的选择仍需综合考虑
+目标类别、分割精度与计算资源。
+\par
+\endgroup

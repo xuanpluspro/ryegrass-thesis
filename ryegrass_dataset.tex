@@ -1,0 +1,51 @@
+% !TeX root = main.tex
+\subsection{黑麦草数据集 RyeSEG 的构建与冠层分割}
+\label{sec:ryegrass-dataset}
+
+\subsubsection{初始样本标注与联合训练}
+为使 BiMSeg 适用于黑麦草冠层图像，首先对 300 张黑麦草图像进行像素级人工标注，建立初始训练样本。标注分为植株前景与背景两类：图像中可辨识的黑麦草组织统一标为前景，底布、土壤等非植株区域标为背景。图~\ref{fig:ryeseg-initial-annotation} 展示了原始图像、人工标注掩膜及其叠加结果。复核时，将掩膜与原图叠加，重点检查细长叶片、叶尖及冠层外围是否漏标。前景掩膜用于界定植株范围，绿叶与枯叶在后续表型提取环节区分。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.92\linewidth]{figures/ryeseg_manual_annotation.pdf}
+  \methodbicaption{黑麦草初始样本的像素级标注示例}
+    {Examples of pixel-level annotation for the initial ryegrass samples}
+    {fig:ryeseg-initial-annotation}
+  \par\smallskip
+  {\raggedright\normalfont\zihao{5}
+   \noindent 注：a 为原始图像，b 为人工标注掩膜，c 为掩膜与原图的叠加结果。每行对应同一样本。\par
+   \noindent Note: a, original images; b, manually annotated masks;
+   c, masks overlaid on the original images. Each row shows the same sample.\par}
+\end{figure}
+为开展联合训练，将 VegAnn、GWFSS 和 RiceSEG 的标注统一为植被前景与背景两类。VegAnn 保留原有的二值标注，GWFSS 和 RiceSEG 则将各植被类别合并为前景。经标注质量筛查，从三个公开数据集中共剔除 103 张标注不合格的图像及其对应掩膜。将筛查后的公开数据与 300 张人工标注的黑麦草图像合并，用于训练初始 BiMSeg 模型。公开数据提供不同作物和成像条件下的分割样本，黑麦草人工标注样本则为模型识别目标作物的冠层提供像素级监督。
+
+\subsubsection{模型辅助标注与数据集扩充}
+使用初始模型对未标注的黑麦草图像分批推理，每批处理 500 张。生成候选掩膜后，逐张对照原图复核，重点检查冠层主体是否完整、细长叶片是否漏分，以及土壤或底布是否被误判为前景。符合标注要求的掩膜直接保留；存在局部漏分、误分或边界偏移的掩膜，使用 X-AnyLabeling 进行人工修补；出现大范围漏分或严重背景误分的样本不纳入当轮标注集。图~\ref{fig:ryeseg-annotation-workflow} 展示了从模型预标注到人工校订的过程。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/ryeseg_annotation_refinement.pdf}
+  \methodbicaption{黑麦草图像的模型预标注与人工校订}
+    {Model-assisted annotation and manual correction of ryegrass images}
+    {fig:ryeseg-annotation-workflow}
+  \par\smallskip
+  {\raggedright\normalfont\zihao{5}
+   \noindent 注：a 为原始图像，b 为模型预测掩膜，c 为人工校订后的掩膜，d 为校订掩膜与原图的叠加结果。\par
+   \noindent Note: a, original image; b, predicted mask; c, manually corrected mask;
+   d, corrected mask overlaid on the original image.\par}
+\end{figure}
+预测掩膜提供植株轮廓的初始标注，人工复核主要用于判断掩膜是否可用并修补局部错误。每轮通过复核的图像及其掩膜均加入黑麦草标注集，并与公开数据合并用于更新模型。更新后的模型继续为下一批黑麦草图像生成候选掩膜。经过多轮迭代，最终获得 3000 张带二值分割掩膜的黑麦草图像，其中包括最初人工标注的 300 张，共同构成 RyeSEG 数据集。
+
+\subsubsection{黑麦草冠层分割模型训练与应用}
+完成数据集构建后，将 RyeSEG 与经过二值化和质量筛查的 VegAnn、GWFSS 及 RiceSEG 合并，用于训练 BiMSeg，得到黑麦草冠层分割模型。图~\ref{fig:ryeseg-segmentation-results} 展示了底布和裸土背景下的代表性推理结果。在所示样本中，预测掩膜提取了冠层主体，并保留了部分伸向冠层外围的细长叶片。将掩膜与原图叠加后，可进一步检查冠层边缘、叶片末端和叶片交叠区域的分割情况。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/ryeseg_bimseg_predictions.pdf}
+  \methodbicaption{BiMSeg 在黑麦草冠层图像上的分割结果}
+    {Ryegrass canopy segmentation results obtained with BiMSeg}
+    {fig:ryeseg-segmentation-results}
+  \par\smallskip
+  {\raggedright\normalfont\zihao{5}
+   \noindent 注：a 为原始图像，b 为模型预测掩膜，c 为预测掩膜与原图的叠加结果。每列对应同一样本。\par
+   \noindent Note: a, original images; b, predicted masks; c, prediction overlays.
+   Each column shows the same sample across rows.\par}
+\end{figure}
+模型输出的二值掩膜为后续表型计算界定了植株范围。计算冠层投影面积时，可统计掩膜中的前景像素数，并在完成成像尺度标定后将其换算为实际投影面积。计算图像枯叶率时，则在冠层前景内进一步区分绿叶与枯叶，以枯叶像素占冠层前景像素的比例作为图像枯叶率。

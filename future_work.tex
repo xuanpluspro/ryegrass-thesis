@@ -1,0 +1,14 @@
+% !TeX root = main.tex
+\section{后续工作计划}
+\label{sec:future-work}
+2026 年 12 月，完成 BiMSeg 语义分割论文的投稿。随后补充 CGTipNet 在 RiceTip、Wheat1799 和 Wheat500 上的独立训练与验证结果，与现有的联合训练结果分别报告，计划于 2027 年 2 月完成叶尖定位与计数论文的投稿。\par
+2027 年 3 月，计划以武汉植物园江夏安山基地的多年生黑麦草为样本，构建分蘖点标注数据集 RyeTiller。图~\ref{fig:ryegrass-tiller-example} 为田间示例。
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.6\linewidth]{figures/ryegrass-tiller.jpg}
+  \methodbicaption{用于分蘖计数的多年生黑麦草田间示例}
+    {Example of a field-grown perennial ryegrass plant for tiller counting}
+    {fig:ryegrass-tiller-example}
+\end{figure}
+分蘖计数以单个分蘖为标注单位，拟统一可辨识分蘖的判读标准与标点位置，完成标注后，利用 RyeTiller 微调 CGTipNet，辅以人工计数为参照，评价模型对单个株丛分蘖数的估计误差。\par
+2027 年 4 月，计划将冠层分割、枯叶率提取和点计数功能集成至同一款移动软件，便于在田间完成图像采集与表型结果查看。2027 年 5 月，拟选取高羊茅、狗牙根等禾草，初步考察上述方法在不同株型上的适用性，并完成硕士学位论文的修改与定稿。

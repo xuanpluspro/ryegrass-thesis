@@ -1,0 +1,116 @@
+% !TeX root = main.tex
+\section{叶尖定位与计数模型（CGTipNet）的构建与应用}
+\label{sec:cgtipnet}
+禾本科植物的叶片细长，在冠层图像中常相互交叠。一片叶被另一片叶遮挡时，其可见轮廓会在交叠处中断，局部外观与真实叶尖相似。辨别二者，需要结合周围叶片的走向判断轮廓是否延伸至叶片末端；而要准确标出叶尖的位置，又需要保留末端附近的细节。本章以图像中可辨识的叶尖为对象，用二维点坐标描述其位置，并以每幅图像中的可见叶尖数作为计数。\par
+针对上述定位难点，本文构建了上下文引导的叶尖定位与计数网络（Context-Guided Network for Leaf-Tip Localization and Counting，CGTipNet），并提出上下文引导的细节融合模块（Context-Guided Detail Fusion Module，TipFuse）。该模块利用深层特征提供的上下文信息，调节较高分辨率特征中的局部差分响应，使模型在融合不同尺度的特征时，既能利用叶片周围的结构信息，又能保留叶尖定位所需的局部细节。CGTipNet 根据融合特征预测候选叶尖的坐标与置信度，经筛选后得到叶尖位置，并由同一组预测点获得计数结果。
+
+\subsection{CGTipNet 上下文引导点计数算法}
+\label{sec:cgtipnet-method}
+
+\subsubsection{CGTipNet 整体网络架构}
+\label{sec:cgtipnet-overview}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.98\linewidth]{figures/CGTipNet_Editable.pdf}
+  \methodbicaption{CGTipNet 叶尖定位与计数网络结构}
+    {Architecture of CGTipNet for leaf-tip localization and counting}
+    {fig:cgtipnet-architecture}
+\end{figure}
+
+如图~\ref{fig:cgtipnet-architecture} 所示，CGTipNet 由特征
+提取、跨尺度特征融合和点预测三部分组成。给定一幅 RGB
+图像，骨干网络采用 VGG 架构\papercite{simonyan2015vgg}中的 16 层配置，并使用带批归一化的版本（VGG16-BN）提取特征，获取相对输入图像的空间步长
+分别为 8 和 16 的特征 \(C_4\) 和 \(C_5\)。两层特征分别
+经过 \(1\times1\) 卷积投影至 256 个通道，得到 \(P_4\)
+和 \(P_5\)。其中，\(P_4\) 具有较高的空间分辨率，
+为叶尖定位保留局部信息；\(P_5\) 则提供更大范围的上下文。
+
+\(P_5\) 通过两条路径参与融合：一路进入本文提出的
+TipFuse，生成用于调制 \(P_4\) 局部细节的门控权重；另
+一路上采样后与调制后的 \(P_4\) 相加，将深层信息直接传递
+至融合特征。融合结果经 \(3\times3\) 卷积后送入点预测头，
+输出各候选点的置信度与坐标偏移。
+
+\subsubsection{上下文引导的细节融合}
+\label{sec:cgtipnet-tipfuse}
+
+跨尺度特征直接相加能够同时利用深层上下文和较高分辨率的
+空间信息，但浅层特征中的局部变化既可能来自叶尖，也可能
+来自叶缘、交叠叶片或背景纹理。本文提出的 TipFuse 将
+局部差分提取与深层上下文调制结合起来，在跨尺度相加之前
+对局部响应进行选择性调整。
+
+首先，使用 \(1\times1\) 卷积将 \(P_4\) 投影至 32 个
+通道，得到中间特征 \(X\)。对 \(X\) 进行步长为 1 的
+\(3\times3\) 平均池化，再从 \(X\) 中减去局部均值，
+得到差分特征 \(D\)。与此同时，对 \(P_5\) 施加
+\(1\times1\) 卷积和 Sigmoid 变换，生成 32 通道的门控
+权重，并通过最近邻上采样将其与 \(D\) 的空间尺寸对齐：
+\begin{equation}
+  \begin{aligned}
+    X &= \phi_{\mathrm{r}}(P_4),\\
+    D &= X-\operatorname{AvgPool}_{3\times3}(X),\\
+    G &= \mathcal{U}\bigl(\sigma(\phi_{\mathrm{g}}(P_5))\bigr).
+  \end{aligned}
+  \label{eq:cgtipnet-tipfuse-detail}
+\end{equation}
+式中，\(\phi_{\mathrm{r}}\) 和 \(\phi_{\mathrm{g}}\)
+分别表示降维卷积和门控卷积，\(\sigma\) 表示 Sigmoid
+函数，\(\mathcal{U}\) 表示最近邻上采样操作。
+
+随后，将差分特征与门控权重逐元素相乘，经 \(1\times1\)
+卷积恢复至 256 个通道，再以残差形式加回 \(P_4\)。
+调制后的特征 \(P'_4\) 与上采样后的 \(P_5\) 相加，并经
+\(3\times3\) 卷积得到用于点预测的融合特征 \(F\)：
+\begin{equation}
+  \begin{aligned}
+    P'_4 &= P_4+\phi_{\mathrm{e}}(D\odot G),\\
+    F &= \phi_{3\times3}\bigl(P'_4+\mathcal{U}(P_5)\bigr).
+  \end{aligned}
+  \label{eq:cgtipnet-tipfuse-fusion}
+\end{equation}
+其中，\(\odot\) 表示逐元素乘法，\(\phi_{\mathrm{e}}\)
+为通道恢复卷积。该卷积的权重初始化为零，因此训练开始时
+\(P'_4=P_4\)，此时解码器执行基本的跨尺度加和。训练过程中，
+残差分支在叶尖点标注的监督下学习对局部差分响应的修正，
+而 \(P_4\) 的原始特征通过残差主路保留。
+
+\subsubsection{点预测与训练监督}
+\label{sec:cgtipnet-point-head}
+
+点预测头沿用 P2PNet 的直接点预测思路
+\papercite{song2021p2pnet}，以融合特征 \(F\) 为输入，
+为预设锚点预测叶尖置信度与二维坐标偏移。设第 \(i\) 个
+锚点的坐标为 \(\mathbf{a}_i\)，回归分支输出的偏移为
+\(\Delta\mathbf{p}_i\)，分类分支输出的 logit 为 \(z_i\)，
+则候选点坐标与置信度分别为
+\begin{equation}
+  \widehat{\mathbf{p}}_i
+    =\mathbf{a}_i+\Delta\mathbf{p}_i,\qquad
+  s_i=\sigma(z_i).
+  \label{eq:cgtipnet-point-prediction}
+\end{equation}
+
+训练阶段采用局部间距感知的匈牙利匹配策略
+（Spacing-Aware Hungarian Matching，SAH）
+\papercite{jiang2026sah}，在候选预测项与人工标注点之间
+建立一对一对应。匹配代价综合考虑分类置信度和几何距离，
+并依据标注点的局部间距调整距离项的权重，使匹配在标注点
+密集区域对几何偏差更敏感。计算几何代价时使用锚点坐标
+作为参考；建立匹配后，使用加上预测偏移所得的候选点坐标
+计算回归误差。匹配成功的预测项作为正样本，同时参与分类
+和坐标回归；未匹配项作为负样本，仅参与分类监督。
+
+训练目标由加权二元交叉熵损失 \(\mathcal{L}_{\mathrm{cls}}\)
+和坐标回归损失 \(\mathcal{L}_{\mathrm{pt}}\) 组成：
+\begin{equation}
+  \mathcal{L}
+  = \mathcal{L}_{\mathrm{cls}}
+  + \lambda_{\mathrm{pt}}\mathcal{L}_{\mathrm{pt}},
+  \label{eq:cgtipnet-loss}
+\end{equation}
+其中，\(\mathcal{L}_{\mathrm{pt}}\) 根据匹配预测点与标注点
+之间的坐标平方误差计算，\(\lambda_{\mathrm{pt}}\) 为其
+损失权重。推理阶段不执行训练时的一对一匹配，仅保留
+置信度超过阈值且落在原图范围内的预测点。保留点的坐标
+构成叶尖定位结果，点数即为该图像的可见叶尖计数。
